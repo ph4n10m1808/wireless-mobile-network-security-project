@@ -1,0 +1,4 @@
+2026-05-15 12:00:01 INFO [main] Application started successfully.
+2026-05-15 12:00:05 WARN [auth] User login attempt failed for user: admin.
+2026-05-15 12:00:08 ERROR [db] Connection timeout to database.
+2026-05-15 12:01:10 INFO [api] Received request from 192.168.1.100.

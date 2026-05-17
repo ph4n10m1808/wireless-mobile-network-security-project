@@ -1,0 +1,33 @@
+xpack.encryptedSavedObjects.encryptionKey: "REPLACE_WITH_REAL_KEY"
+
+server.host: "0.0.0.0"
+telemetry.enabled: true
+
+xpack.fleet.enabled: true
+xpack.fleet.agents.enabled: true
+xpack.fleet.agents.tlsCheckDisabled: false
+
+xpack.fleet.outputs:
+  - id: fleet-default-output
+    name: default
+    type: elasticsearch
+    hosts: ["https://ecp-elasticsearch:9200"]
+
+xpack.fleet.fleetServerHosts:
+  - id: fleet-server
+    name: fleet-server
+    host_urls: ["https://ecp-fleet-server:8220"]
+
+xpack.fleet.packages:
+  - name: system
+    version: latest
+
+xpack.fleet.agentPolicies:
+  - name: Fleet Server policy
+    id: fleet-server-policy
+    namespace: default
+    is_default_fleet_server: true
+    package_policies:
+      - name: fleet_server-1
+        package:
+          name: fleet_server
