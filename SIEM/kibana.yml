@@ -1,33 +1,38 @@
-xpack.encryptedSavedObjects.encryptionKey: "REPLACE_WITH_REAL_KEY"
+# =============================================================================
+# 🛡️ KIBANA PRODUCTION CONFIGURATION (SECURE & HARDENED)
+# =============================================================================
 
+server.name: "ecp-kibana"
 server.host: "0.0.0.0"
-telemetry.enabled: true
+server.port: 5601
 
-xpack.fleet.enabled: true
-xpack.fleet.agents.enabled: true
-xpack.fleet.agents.tlsCheckDisabled: false
+# -----------------------------------------------------------------------------
+# 🔌 ELASTICSEARCH SECURE CONNECTION
+# -----------------------------------------------------------------------------
+elasticsearch.hosts: ["https://ecp-elasticsearch:9200"]
+elasticsearch.username: "kibana_system"
+elasticsearch.password: "${ELASTICSEARCH_PASSWORD}"
 
-xpack.fleet.outputs:
-  - id: fleet-default-output
-    name: default
-    type: elasticsearch
-    hosts: ["https://ecp-elasticsearch:9200"]
+# Verify the SSL certificate of the Elasticsearch node
+elasticsearch.ssl.certificateAuthorities: [ "/usr/share/kibana/config/certs/ca/ca.crt" ]
+elasticsearch.ssl.verificationMode: "certificate"
 
-xpack.fleet.fleetServerHosts:
-  - id: fleet-server
-    name: fleet-server
-    host_urls: ["https://ecp-fleet-server:8220"]
+# -----------------------------------------------------------------------------
+# 🔒 SERVER SSL / HTTPS FOR USER TRAFFIC
+# -----------------------------------------------------------------------------
+server.ssl.enabled: true
+server.ssl.certificate: "/usr/share/kibana/config/certs/kibana/kibana.crt"
+server.ssl.key: "/usr/share/kibana/config/certs/kibana/kibana.key"
 
-xpack.fleet.packages:
-  - name: system
-    version: latest
+# -----------------------------------------------------------------------------
+# 🔑 ENCRYPTION & SECURITY KEYS (32+ Bytes mandatory keys)
+# -----------------------------------------------------------------------------
+xpack.security.encryptionKey: "${ENCRYPTION_KEY}"
+xpack.encryptedSavedObjects.encryptionKey: "${ENCRYPTION_KEY}"
+xpack.reporting.encryptionKey: "${ENCRYPTION_KEY}"
 
-xpack.fleet.agentPolicies:
-  - name: Fleet Server policy
-    id: fleet-server-policy
-    namespace: default
-    is_default_fleet_server: true
-    package_policies:
-      - name: fleet_server-1
-        package:
-          name: fleet_server
+# -----------------------------------------------------------------------------
+# 📊 TELEMETRY & SYSTEM SETTINGS
+# -----------------------------------------------------------------------------
+telemetry.enabled: false
+logging.root.level: "info"

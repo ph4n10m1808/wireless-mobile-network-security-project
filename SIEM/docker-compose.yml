@@ -3,7 +3,7 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
     container_name: ecp-elasticsearch-security-setup
     volumes:
-      - ./certs:/usr/share/elasticsearch/config/certs:z
+      - certs:/usr/share/elasticsearch/config/certs
     user: "0"
     command: >
       bash -c '
@@ -48,8 +48,8 @@ services:
         fi;
         echo "Setting file permissions"
         chown -R root:root config/certs;
-        find . -type d -exec chmod 750 \{\} \;;
-        find . -type f -exec chmod 640 \{\} \;;
+        find config/certs -type d -exec chmod 755 \{\} \;;
+        find config/certs -type f -exec chmod 644 \{\} \;;
         echo "Waiting for Elasticsearch availability";
         until curl -s --cacert config/certs/ca/ca.crt https://ecp-elasticsearch:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
         echo "Setting kibana_system password";
@@ -69,8 +69,8 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
     container_name: ecp-elasticsearch
     volumes:
-      - ./certs:/usr/share/elasticsearch/config/certs
-      - ./elasticsearch_data:/usr/share/elasticsearch/data
+      - certs:/usr/share/elasticsearch/config/certs
+      - elasticsearch_data:/usr/share/elasticsearch/data
     ports:
       - ${ES_PORT}:9200
     restart: always
@@ -120,8 +120,8 @@ services:
     image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
     container_name: ecp-kibana
     volumes:
-      - ./certs:/usr/share/kibana/config/certs:z
-      - ./kibanadata:/usr/share/kibana/data
+      - certs:/usr/share/kibana/config/certs
+      - kibanadata:/usr/share/kibana/data
       - ./kibana.yml:/usr/share/kibana/config/kibana.yml:Z
     ports:
       - ${KIBANA_PORT}:5601
@@ -136,6 +136,7 @@ services:
       - SERVER_SSL_CERTIFICATE=config/certs/kibana/kibana.crt
       - SERVER_SSL_KEY=config/certs/kibana/kibana.key
       - SERVER_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - XPACK_SECURITY_ENCRYPTIONKEY=${ENCRYPTION_KEY}
       - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${ENCRYPTION_KEY}
       - XPACK_REPORTING_ENCRYPTIONKEY=${ENCRYPTION_KEY}
@@ -157,7 +158,7 @@ services:
     image: docker.elastic.co/logstash/logstash:${STACK_VERSION}
     container_name: ecp-logstash
     volumes:
-      - ./certs:/usr/share/logstash/config/certs:z
+      - certs:/usr/share/logstash/config/certs
       - ./logstash/pipeline:/usr/share/logstash/pipeline:z
       - ./sample.log:/usr/share/logstash/sample.log:z
     ports:
@@ -169,7 +170,9 @@ services:
       - queue.type=persisted
       - queue.max_bytes=1gb
 volumes:
-  esdata01:
+  elasticsearch_data:
     driver: local
   kibanadata:
+    driver: local
+  certs:
     driver: local

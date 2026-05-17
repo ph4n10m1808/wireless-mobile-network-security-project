@@ -12,3 +12,10 @@ __pycache__/
 simulated_blacklist.txt
 wips-alerts.json
 network-events.json
+
+# Notion Sync & Credentials
+.env
+**/.env
+!SIEM/.env
+notion_sync.py
+
