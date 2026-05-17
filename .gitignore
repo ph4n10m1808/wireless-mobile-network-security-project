@@ -1,2 +1,14 @@
 *.pdf
-.env
+
+# Vagrant
+.vagrant/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Local Simulation Logs & Blacklists
+*.log
+simulated_blacklist.txt
+wips-alerts.json
+network-events.json
