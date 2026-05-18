@@ -1,0 +1,358 @@
+# 🛡️ Data Flow — Wireless Network Security WIDS-SIEM
+
+> **Dự án:** Wireless/Mobile Network Security — WIDS tích hợp ELK Stack  
+> **Stack:** Mininet-WiFi · Kismet · Python Scripts · Logstash · Elasticsearch · Kibana  
+> **Mục tiêu:** Phát hiện, thu thập và trực quan hóa các mối đe dọa Wi-Fi (Rogue AP, Evil Twin, Deauth Flood, v.v.)
+
+---
+
+## 1. Tổng quan kiến trúc hệ thống
+
+```mermaid
+flowchart TB
+    subgraph VIRTUAL_NET["🖥️ Tầng Mạng Ảo (Mininet-WiFi + mac80211_hwsim)"]
+        direction LR
+        AP1["📡 ap1\nCompany-WiFi\nCH1 · BSSID: 02:00:00:00:1c:00\n✅ HỢP LỆ"]
+        AP2["📡 ap2\nCompany-WiFi\nCH6 · BSSID: 02:00:00:00:1d:00\n✅ HỢP LỆ"]
+        AP3["📡 ap3\nCompany-Guest\nCH11 · BSSID: 02:00:00:00:1e:00\n✅ HỢP LỆ"]
+        ROGUE["⚠️ ap4 (Rogue AP)\nCompany-WiFi\nCH11 · BSSID: 02:00:00:00:1f:00\n🔴 Evil Twin · Open Encryption"]
+        STA["📱 sta1–sta8\n8 Wireless Clients\n10.0.0.1/8 – 10.0.0.8/8"]
+        STA -->|liên kết Wi-Fi| AP1 & AP2 & AP3
+        STA -.->|bị dụ kết nối| ROGUE
+    end
+
+    subgraph SENSORS["🔍 Tầng Cảm biến (Sensor Layer)"]
+        direction TB
+        WLAN7["🛰️ wlan7\nMonitor Mode · CH11\nHost Physical Interface"]
+        KISMET["🐾 Kismet WIDS\nlocalhost:2501\nsudo kismet -c wlan7"]
+        VWIPS["🤖 Virtual WIPS Detector\nsrc/virtual_wips_detector.py\nSimulated Alert Generator"]
+        WLAN7 -->|"Packet Capture\n802.11 raw frames"| KISMET
+        VIRTUAL_NET -.->|"virtual radio frames\n(mac80211_hwsim)"| WLAN7
+    end
+
+    subgraph BRIDGE["🔄 Tầng Cầu nối (Bridge/ETL Layer)"]
+        KISMET_BRIDGE["🌉 kismet_to_elk.py\nKismet REST API Bridge\nPolling: /alerts/all_alerts.json\nevery 2 seconds"]
+        KISMET -->|"REST API\nHTTP GET\n/alerts/all_alerts.json"| KISMET_BRIDGE
+        VWIPS -->|"ghi trực tiếp\nJSON/Line"| LOG_WIPS
+    end
+
+    subgraph LOGS["📁 Log Files (Host Filesystem)"]
+        direction LR
+        LOG_WIPS["/var/log/virtual-wips/\nwips-alerts.json\nNewline-delimited JSON"]
+        LOG_NET["/var/log/virtual-network/\nnetwork events"]
+        LOG_KISMET["/var/log/kismet/\nkismet raw logs"]
+        KISMET_BRIDGE -->|"ghi JSON chuẩn hóa"| LOG_WIPS
+        KISMET -->|"raw log output"| LOG_KISMET
+    end
+
+    subgraph SIEM["📊 Tầng SIEM (ELK Stack — Docker)"]
+        direction LR
+        LOGSTASH["⚙️ Logstash\necp-logstash:5044\nPipeline: filter + parse + enrich"]
+        ES["🔎 Elasticsearch\necp-elasticsearch:9200\nIndex: wids-alerts-*\nTLS + xpack.security"]
+        KIBANA["📈 Kibana\necp-kibana:5601\nDashboard · Alerts · Maps\nTLS + Auth"]
+        LOGSTASH -->|"Bulk Index\nHTTPS/9200"| ES
+        ES -->|"Query & Aggregate"| KIBANA
+    end
+
+    LOG_WIPS -->|"file input\n(bind mount :ro)"| LOGSTASH
+    LOG_NET  -->|"file input\n(bind mount :ro)"| LOGSTASH
+    LOG_KISMET -->|"file input\n(bind mount :ro)"| LOGSTASH
+```
+
+---
+
+## 2. Chi tiết luồng dữ liệu từ nguồn đến đích
+
+```mermaid
+sequenceDiagram
+    participant MN  as 🖥️ Mininet-WiFi<br/>(dense_wifi_topology.py)
+    participant HW  as 📻 mac80211_hwsim<br/>(wlan7 monitor)
+    participant KS  as 🐾 Kismet WIDS<br/>(localhost:2501)
+    participant BR  as 🌉 kismet_to_elk.py<br/>(Bridge Script)
+    participant VW  as 🤖 virtual_wips_detector.py
+    participant LS  as ⚙️ Logstash
+    participant ES  as 🔎 Elasticsearch
+    participant KB  as 📈 Kibana
+
+    Note over MN,HW: Khởi động hạ tầng ảo hóa
+    MN->>HW: modprobe mac80211_hwsim radios=8
+    MN->>MN: Tạo ap1, ap2, ap3, rogueap (ap4)
+    MN->>MN: Tạo sta1–sta8
+    MN->>HW: iw dev wlan7 set type monitor
+    MN->>HW: iw dev wlan7 set channel 11
+
+    Note over HW,KS: Bắt gói tin không dây
+    HW->>KS: 802.11 raw frames (Beacon, Probe, Deauth, ...)
+    KS->>KS: Phân tích frame → phát hiện<br/>Evil Twin / Rogue AP / Deauth Flood
+
+    Note over KS,BR: Kismet REST API Bridge (mỗi 2 giây)
+    BR->>KS: GET /session/check_session.json (auth)
+    KS-->>BR: 200 OK + session cookie
+    loop Polling mỗi 2 giây
+        BR->>KS: GET /alerts/all_alerts.json
+        KS-->>BR: JSON array of alerts
+        BR->>BR: Lọc alert mới (dedup bằng hash)<br/>Chuẩn hóa schema → JSON event
+        BR->>BR: write_to_elk_log()<br/>/var/log/virtual-wips/wips-alerts.json
+    end
+
+    Note over VW,BR: Virtual WIPS Detector (song song, mỗi 10 giây)
+    loop Mỗi 10 giây
+        VW->>VW: So sánh DETECTED_APS vs AUTHORIZED_APS
+        VW->>VW: Sinh sự kiện:<br/>evil_twin / rogue_ap / deauth_flood<br/>/ wifi_auth_fail / unknown_client
+        VW->>VW: ghi → /var/log/virtual-wips/wips-alerts.json
+    end
+
+    Note over LS,ES: ELK Pipeline (Docker bind mount)
+    LS->>LS: file input: tail wips-alerts.json
+    LS->>LS: filter: json codec<br/>mutate: add_field source_layer<br/>grok: parse timestamp
+    LS->>ES: POST /_bulk HTTPS + TLS<br/>index: wids-alerts-YYYY.MM.DD
+    ES->>ES: Lưu trữ, index mapping, shard
+
+    Note over ES,KB: Trực quan hóa
+    KB->>ES: GET /_search (aggregation queries)
+    ES-->>KB: JSON aggregated results
+    KB->>KB: Render Dashboard:<br/>Alert Timeline / Severity Chart<br/>Rogue AP Map / Event Table
+```
+
+---
+
+## 3. Luồng xử lý sự kiện tấn công (Attack Event Flow)
+
+```mermaid
+flowchart LR
+    subgraph ATTACK["🔴 Tình huống tấn công"]
+        A1["Evil Twin\nap4 phát sóng Company-WiFi\ntrên CH11 không mã hóa"]
+        A2["Deauth Flood\nGửi frame deauth\nhàng loạt tới clients"]
+        A3["Rogue AP\nAP trái phép phát\nSSID nội bộ"]
+        A4["Auth Brute Force\nThử auth thất bại\n> 10 lần / 5 phút"]
+        A5["Unknown Client\nThiết bị lạ kết nối\nvào SSID nội bộ"]
+    end
+
+    subgraph DETECT["🔍 Phát hiện (Detection)"]
+        D1["Kismet\nAPSPOOF alert\nBSSID không trong whitelist"]
+        D2["Kismet\nDeauth frame storm\nphát hiện qua frame analysis"]
+        D3["Virtual WIPS\nSo sánh BSSID\nvs AUTHORIZED_APS list"]
+        D4["Virtual WIPS\nĐếm auth_fail\ntheo window 300s"]
+        D5["Virtual WIPS\nKiểm tra MAC\ntrong asset inventory"]
+    end
+
+    subgraph NORMALIZE["⚙️ Chuẩn hóa (ETL)"]
+        N1["event_type: evil_twin_detected\nseverity: critical"]
+        N2["event_type: deauth_flood\nseverity: critical"]
+        N3["event_type: rogue_ap_detected\nseverity: high"]
+        N4["event_type: wifi_auth_fail\nseverity: medium"]
+        N5["event_type: unknown_client_joined\nseverity: high"]
+    end
+
+    subgraph STORE["💾 Lưu trữ & Phân tích"]
+        ES2["Elasticsearch Index\nwids-alerts-*\nfields: timestamp, source,\nsensor, event_type, ssid,\nbssid, client_mac, severity"]
+    end
+
+    subgraph VISUALIZE["📊 Trực quan hóa"]
+        KB2["Kibana Dashboard\n🔴 Critical Alerts Panel\n📡 Rogue AP Map\n📈 Attack Timeline\n📋 Event Log Table"]
+    end
+
+    A1 --> D1 --> N1
+    A2 --> D2 --> N2
+    A3 --> D3 --> N3
+    A4 --> D4 --> N4
+    A5 --> D5 --> N5
+    N1 & N2 & N3 & N4 & N5 --> ES2 --> KB2
+```
+
+---
+
+## 4. Kiến trúc Docker và kết nối dịch vụ
+
+```mermaid
+flowchart TB
+    subgraph HOST["🐧 Kali Linux Host"]
+        KISMET_HOST["Kismet Process\n:2501"]
+        VWIPS_HOST["virtual_wips_detector.py"]
+        BRIDGE_HOST["kismet_to_elk.py"]
+        LOG_HOST["📁 /var/log/\n├── virtual-wips/wips-alerts.json\n├── virtual-network/\n└── kismet/"]
+    end
+
+    subgraph DOCKER["🐳 Docker Network (ecp-*)"]
+        direction TB
+        subgraph SETUP["Setup Service (One-time)"]
+            CERTGEN["elasticsearch-certutil\nGenerate CA + TLS Certs\n→ /certs volume"]
+        end
+        subgraph ES_SVC["Elasticsearch Service"]
+            ES_NODE["ecp-elasticsearch\n:9200 (HTTPS)\nxpack.security=true\nTLS + Basic Auth"]
+        end
+        subgraph KB_SVC["Kibana Service"]
+            KB_NODE["ecp-kibana\n:5601 (HTTPS)\nEncryption Keys via ENV"]
+        end
+        subgraph LS_SVC["Logstash Service"]
+            LS_NODE["ecp-logstash\n:5044 (Beats)\nPipeline: wids.conf"]
+        end
+
+        CERTGEN -->|"certs volume"| ES_NODE
+        CERTGEN -->|"certs volume"| KB_NODE
+        CERTGEN -->|"certs volume"| LS_NODE
+        ES_NODE <-->|"HTTPS :9200"| KB_NODE
+        ES_NODE <-->|"HTTPS :9200"| LS_NODE
+    end
+
+    LOG_HOST -->|"Docker bind mount\n(read-only :ro)"| LS_NODE
+
+    BROWSER["🌐 Browser\nhttps://localhost:5601"]
+    BROWSER -->|HTTPS| KB_NODE
+```
+
+---
+
+## 5. Schema sự kiện JSON chuẩn (Event Schema)
+
+```mermaid
+classDiagram
+    class WIDSEvent {
+        +String timestamp           %% ISO8601, UTC+7
+        +String source              %% "virtual-wips" | "kismet-wids"
+        +String sensor              %% "kali-mininet-wifi-sensor-01"
+        +String event_type          %% Xem EventType enum bên dưới
+        +String description         %% Mô tả chi tiết sự kiện
+        +String ssid                %% SSID bị ảnh hưởng
+        +String bssid               %% BSSID của AP
+        +String client_mac          %% MAC của client (nếu có)
+        +Integer channel            %% Kênh Wi-Fi (1/6/11)
+        +String encryption          %% "WPA2-Enterprise" | "open" | ...
+        +Boolean authorized         %% false = cảnh báo
+        +String severity            %% Xem Severity enum
+    }
+
+    class EventType {
+        <<enumeration>>
+        evil_twin_detected
+        rogue_ap_detected
+        deauth_flood
+        wifi_auth_fail
+        unknown_client_joined
+        unknown_wireless_alert
+    }
+
+    class Severity {
+        <<enumeration>>
+        critical
+        high
+        medium
+        low
+    }
+
+    class KismetRaw {
+        +String class
+        +String hash
+        +Integer severity_raw
+    }
+
+    class DeauthExtra {
+        +Integer deauth_count
+        +Integer affected_clients
+    }
+
+    class AuthFailExtra {
+        +Integer auth_fail_count
+        +Integer window_seconds
+    }
+
+    WIDSEvent --> EventType
+    WIDSEvent --> Severity
+    WIDSEvent "1" o-- "0..1" KismetRaw : kismet_raw
+    WIDSEvent "1" o-- "0..1" DeauthExtra : deauth fields
+    WIDSEvent "1" o-- "0..1" AuthFailExtra : auth_fail fields
+```
+
+---
+
+## 6. Timeline khởi động hệ thống
+
+```mermaid
+gantt
+    title Quy trình khởi động hệ thống WIDS-SIEM
+    dateFormat  mm:ss
+    axisFormat  %M:%S
+
+    section Hạ tầng ảo
+    modprobe mac80211_hwsim radios=8      :a1, 00:00, 5s
+    Mininet-WiFi build topology            :a2, after a1, 15s
+    Cấu hình wlan7 monitor mode CH11      :a3, after a2, 3s
+
+    section Kismet WIDS
+    sudo kismet -c wlan7                   :b1, after a3, 10s
+    Kismet sẵn sàng nhận request API      :milestone, b2, after b1, 0s
+
+    section ELK Stack (Docker)
+    docker compose up setup (TLS certs)    :c1, 00:00, 60s
+    Elasticsearch khởi động               :c2, after c1, 30s
+    Kibana khởi động                       :c3, after c2, 20s
+    Logstash pipeline active               :c4, after c2, 15s
+
+    section Bridge Scripts
+    kismet_to_elk.py bắt đầu poll         :d1, after b2, 2s
+    virtual_wips_detector.py chạy         :d2, 00:30, 5s
+    Logstash đọc wips-alerts.json         :d3, after c4, 1s
+    Kibana hiển thị dữ liệu đầu tiên      :milestone, d4, after d3, 0s
+```
+
+---
+
+## 7. Bảng tóm tắt thành phần
+
+| Thành phần | Loại | Địa chỉ / Đường dẫn | Vai trò |
+|---|---|---|---|
+| `dense_wifi_topology.py` | Python Script | `src/` | Tạo mạng Wi-Fi ảo với 3 AP hợp lệ + 1 Rogue AP |
+| `mac80211_hwsim` | Kernel Module | `wlan0`–`wlan7` | Cung cấp 8 card Wi-Fi ảo |
+| `wlan7` | Monitor Interface | CH11 | Bắt mọi frame 802.11 cho Kismet |
+| **Kismet WIDS** | Daemon | `localhost:2501` | Phân tích frame → sinh alert APSPOOF/Deauth/v.v. |
+| `kismet_to_elk.py` | Bridge Script | `src/` | Chuyển tiếp alert Kismet → JSON log chuẩn |
+| `virtual_wips_detector.py` | Simulator | `src/` | Sinh log WIDS mô phỏng (fallback khi thiếu HW) |
+| **Logstash** | Docker Container | `ecp-logstash:5044` | Parse + enrich + forward → Elasticsearch |
+| **Elasticsearch** | Docker Container | `ecp-elasticsearch:9200` | Lưu trữ + index WIDS events |
+| **Kibana** | Docker Container | `ecp-kibana:5601` | Dashboard trực quan hóa cảnh báo |
+| `/var/log/virtual-wips/` | Log Dir | Host FS | File trung gian giữa Scripts và Logstash |
+| `/var/log/kismet/` | Log Dir | Host FS | Raw log Kismet |
+| TLS Certificates | PKI Volume | Docker `certs` volume | Bảo mật toàn bộ kênh truyền ELK |
+
+---
+
+## 8. Luồng dữ liệu bảo mật (Security Data Path)
+
+```mermaid
+flowchart LR
+    subgraph UNTRUSTED["🔴 Vùng không tin cậy"]
+        ROGUE2["Rogue AP\nEvil Twin\nDeauth Attacker"]
+    end
+
+    subgraph DETECTION["🟡 Vùng phát hiện"]
+        AIR["📻 Không gian vô tuyến\n(802.11 frames)"]
+        KS2["Kismet\nReal-time WIDS\nDetection Engine"]
+        VIRT["Virtual WIPS\nSimulation Engine"]
+    end
+
+    subgraph PROCESSING["🟠 Vùng xử lý"]
+        PIPE["Logstash Pipeline\nParse → Enrich → Normalize\nGeo-IP · Severity mapping · Timestamp fix"]
+    end
+
+    subgraph STORAGE["🟢 Vùng lưu trữ & phân tích"]
+        IDX["Elasticsearch\nTime-series Index\nFull-text Search"]
+        DASH["Kibana\nReal-time Dashboard\nAlert Rules · SIEM Views"]
+    end
+
+    ROGUE2 -->|"Beacon / Probe / Deauth\n802.11 frames"| AIR
+    AIR -->|"Captured by wlan7\nMonitor Mode"| KS2
+    KS2 -->|"REST API\nalerts JSON"| VIRT
+    KS2 & VIRT -->|"Normalized JSON Events\n/var/log/virtual-wips/"| PIPE
+    PIPE -->|"HTTPS + TLS\nBulk Index"| IDX
+    IDX -->|"Aggregated Results"| DASH
+
+    style UNTRUSTED fill:#ff4444,color:#fff
+    style DETECTION fill:#ff9900,color:#000
+    style PROCESSING fill:#ffcc00,color:#000
+    style STORAGE fill:#00aa44,color:#fff
+```
+
+---
+
+*Tài liệu được tạo tự động theo kiến trúc thực tế của dự án.*  
+*Cập nhật lần cuối: 2026-05-18*

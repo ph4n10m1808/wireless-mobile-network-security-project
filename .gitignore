@@ -18,4 +18,6 @@ network-events.json
 **/.env
 !SIEM/.env
 notion_sync.py
+*.apconf
+*.kismet*
 
