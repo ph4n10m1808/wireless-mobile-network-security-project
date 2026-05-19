@@ -1,64 +1,55 @@
-# Kế Hoạch Triển Khai & Mô Phỏng Hệ Thống WIDS/WIPS Thực Tế Sử Dụng Kismet WIDS Tích Hợp ELK Stack
+# 📑 Kế Hoạch Triển Khai & Thực Nghiệm Hệ Thống WIDS/WIPS Thực Tế Sử Dụng Kismet & ELK Stack
 
-Kế hoạch này được xây dựng và tùy biến để thay thế bộ giả lập WIDS bằng **Kismet WIDS** – hệ thống phát hiện xâm nhập không dây nguồn mở chuyên nghiệp của ngành an ninh mạng. Hệ thống chạy trên môi trường lai (Hybrid Emulation): giả lập sóng vô tuyến ảo bằng **Mininet-WiFi**, bắt gói tin bằng **Kismet WIDS** thực tế ở chế độ Monitor mode, và quản lý tập trung trên hạ tầng **ELK Stack (Elasticsearch, Logstash, Kibana)**.
-
-> [!NOTE]
-> Dự án chạy hoàn toàn trên máy host **Kali Linux** sử dụng driver vô tuyến giả lập nhân Linux `mac80211_hwsim` để tạo 8 card mạng ảo. Một card mạng ảo (ví dụ `wlan7`) sẽ được đưa vào chế độ **Monitor Mode** để Kismet làm "sensor" nghe trộm sóng ảo và phân tích.
+Tài liệu này trình bày chi tiết kế hoạch triển khai, cấu trúc luồng dữ liệu thực tế và kịch bản thực nghiệm kiểm thử cho hệ thống **WIDS/WIPS lai (Hybrid WIDS/WIPS)**. Hệ thống kết hợp giả lập môi trường Wi-Fi mật độ cao bằng **Mininet-WiFi**, bắt gói tin thật ở chế độ Monitor Mode bằng công cụ tiêu chuẩn **Kismet WIDS**, và quản lý an ninh tập trung trên cụm **SIEM ELK Stack (Elasticsearch, Logstash, Kibana)**.
 
 ---
 
-## 1. Tổng Quan & Kiến Trúc Hệ Thống Kismet + ELK
+## 1. Kiến Trúc Luồng Dữ Liệu Thực Nghiệm (Data Flow)
 
-### 1.1. Tên Đề Tài Đề Xuất
-> **"Thiết kế và mô phỏng hệ thống ngăn chặn xâm nhập không dây WIPS thời gian thực sử dụng Kismet WIDS và hạ tầng ELK Stack trong môi trường Mininet-WiFi"**
+Kiến trúc hệ thống được thiết kế để Kismet WIDS trực tiếp bắt và phân tích gói tin 802.11 thô từ không gian vô tuyến ảo (mac80211_hwsim), sau đó qua bộ WIPS Active Response tự động thực hiện cô lập và đẩy log chuẩn hóa lên SIEM.
 
-### 1.2. Sơ Đồ Luồng Dữ Liệu Thực Nghiệm (Data Flow)
 ```mermaid
 graph TD
     subgraph "Môi trường Wi-Fi ảo (Mininet-WiFi)"
-        A1[Legit AP1 & AP2] -->|Sóng Wi-Fi ảo 802.11| S[Stations sta1-sta8]
+        A1[Legit AP1 & AP2 & AP3] -->|Sóng Wi-Fi ảo 802.11| S[Stations sta1-sta8]
         R[Rogue AP / Evil Twin] -.->|Phát sóng trùng kênh 11| S
-        AT[Kẻ tấn công: aireplay-ng] -.->|Bắn deauth flood thực| S
+        AT[Kẻ tấn công: kali_wids_attacks.sh] -.->|Bắn deauth flood thực| S
     end
 
     subgraph "Giám sát Vô tuyến & Phân tích (Kismet WIDS)"
-        W[Card monitor ảo: wlan7] -->|Bắt gói tin raw 802.11| K[Kismet WIDS Daemon: Port 2501]
-        K -->|Alert Engine| KA[Kismet Web API /alerts/all.json]
+        W[Card monitor ảo: wlan15] -->|Bắt gói tin raw 802.11| K[Kismet WIDS Daemon: Port 2501]
+        K -->|Alert Engine| KA[Kismet REST API /alerts/all_alerts.json]
     end
 
-    subgraph "Đồng bộ & Chuẩn hóa (Bridge / Logstash)"
-        B[Bridge Script: kismet_to_elk.py] -->|Query REST API| KA
-        B -->|Ghi log JSON chuẩn hóa| M[wips-alerts.json]
-        N[Network Generator - Python] -->|Log DHCP/Firewall/DNS| L[network-events.json]
+    subgraph "Đồng bộ, Ngăn chặn & Chuẩn hóa (WIPS & Bridge)"
+        WD[Active WIPS: kismet_wips_daemon.py] -->|Query API & Sync| KA
+        WD -->|Ghi log JSON chuẩn hóa| M[wips-alerts.json]
+        WD -->|Ghi log cách ly| AR[active-response.log]
+        WD -.->|Gửi gói Deauth cô lập via wlan14| S
+        WD -.->|Block IP/MAC vi phạm| BL[simulated_blacklist.txt]
     end
 
     subgraph "Lưu trữ & Trực quan (SIEM ELK Stack)"
         M -->|Mount Volume| LS[Logstash Containers: Port 5044]
-        L -->|Mount Volume| LS
         LS -->|Đẩy log qua HTTPS| ES[Elasticsearch: Port 9200]
-        ES -->|Lưu index wids-* và network-*| ES
+        ES -->|Lưu index wids-alerts-*| ES
         ES -->|Truy vấn dữ liệu| KB[Kibana SIEM Dashboard: Port 5601]
-    end
-
-    subgraph "Ngăn chặn Chủ động (WIPS Active Response)"
-        M -->|Tail Log Real-time| AR[wips_elk_containment_simulator.py]
-        L -->|Tail Log Real-time| AR
-        AR -->|Ghi log cách ly & block IP/MAC| BL[simulated_blacklist.txt]
     end
 
     style R fill:#ff9999,stroke:#ff3333,stroke-width:2px;
     style K fill:#ff99ff,stroke:#cc00cc,stroke-width:2px;
     style ES fill:#99ccff,stroke:#3366cc,stroke-width:2px;
     style KB fill:#cc99ff,stroke:#9933ff,stroke-width:2px;
-    style AR fill:#ffcc99,stroke:#ff9933,stroke-width:2px;
+    style WD fill:#ffcc99,stroke:#ff9933,stroke-width:2px;
 ```
 
 ---
 
 ## 2. Thiết Kế Tích Hợp ELK Stack Cho Kismet
 
-### 2.1. Cấu hình Docker Compose (Mount log từ Host vào Logstash)
-Để Logstash có thể đọc cả log từ cầu nối Kismet (`wips-alerts.json`) hoặc log thô trực tiếp của Kismet (`/var/log/kismet`), cập nhật phần cấu hình dịch vụ `logstash` trong file `SIEM/docker-compose.yml` như sau:
+### 2.1. Cấu hình Volume Mount trong Docker Compose
+Dữ liệu log được đồng bộ từ Host vào container Logstash thông qua bind mount thư mục chia sẻ `/var/log/virtual-wips/`. Cấu hình dịch vụ `logstash` trong tệp `SIEM/docker-compose.yml` được tối ưu hóa như sau:
+
 ```yaml
   logstash:
     depends_on:
@@ -69,10 +60,7 @@ graph TD
     volumes:
       - ./certs:/usr/share/logstash/config/certs:z
       - ./logstash/pipeline:/usr/share/logstash/pipeline:z
-      - /var/log/virtual-wips:/usr/share/logstash/wids:ro
-      - /var/log/virtual-network:/usr/share/logstash/network:ro
-      - /var/log/kismet:/usr/share/logstash/kismet_raw:ro # Thêm mount thư mục log Kismet thô
-      - ./sample.log:/usr/share/logstash/sample.log:z
+      - /var/log/virtual-wips:/usr/share/logstash/wids:ro # Mount thư mục log WIPS & Kismet Bridge
     ports:
       - "5044:5044"
     restart: always
@@ -81,119 +69,101 @@ graph TD
       - LS_JAVA_OPTS=-Xms1g -Xmx1g
 ```
 
-### 2.2. Tổ chức Pipeline Logstash Phân Tách
-Chúng ta chia làm **2 file cấu hình** độc lập trong thư mục `SIEM/logstash/pipeline/`:
-1. **`logstash.conf`**: Xử lý WIDS Python (chuẩn hóa qua Bridge hoặc script WIDS mô phỏng) và Network Events.
-2. **`kismet.conf`**: Xử lý riêng biệt các cảnh báo thô trực tiếp từ Kismet.
+### 2.2. Pipeline Logstash Tinh Chỉnh (`SIEM/logstash/pipeline/logstash.conf`)
+Đầu vào và bộ lọc được thiết kế chuyên biệt để chỉ nhận duy nhất luồng dữ liệu an ninh WIDS từ file log chuẩn hóa `wips-alerts.json`:
 
-*(Chi tiết mã nguồn 2 file này đã được cập nhật thành công tại [logstash.conf](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/SIEM/logstash/pipeline/logstash.conf) và [kismet.conf](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/SIEM/logstash/pipeline/kismet.conf)).*
+```ruby
+input {
+  # Nhận log từ hệ thống WIDS ảo (đã chuẩn hóa qua kismet_to_elk bridge hoặc kismet_wips_daemon)
+  file {
+    path => "/usr/share/logstash/wids/wips-alerts.json"
+    codec => "json"
+    start_position => "beginning"
+    sincedb_path => "/dev/null"
+    tags => ["wids", "wireless"]
+  }
+}
 
----
+filter {
+  if "wids" in [tags] {
+    mutate {
+      add_field => { "[@metadata][index_prefix]" => "wids-alerts" }
+    }
+    date {
+      match => [ "timestamp", "ISO8601" ]
+      target => "@timestamp"
+    }
+  }
+}
 
-## 3. Các Bước Triển Khai Thực Nghiệm
-
-### Bước 1: Kích hoạt Driver Card Mạng Wi-Fi Ảo (`mac80211_hwsim`) trên Host Kali
-Chạy lệnh sau để kích hoạt 8 card mạng ảo trên máy host Kali Linux:
-```bash
-sudo modprobe mac80211_hwsim radios=8
-iw dev
-```
-*(wlan0 đến wlan7 sẽ xuất hiện).*
-
-### Bước 2: Thiết lập Mạng Wi-Fi Mật Độ Cao (`dense_wifi_topology.py`)
-Khởi chạy Mininet-WiFi để tạo môi trường sóng ảo, các AP hợp lệ và AP giả mạo (Evil Twin):
-```bash
-sudo python3 src/dense_wifi_topology.py
-```
-
-### Bước 3: Cài đặt & Triển khai Kismet WIDS (Thay thế cho Python WIDS gốc)
-1. **Cài đặt Kismet trên Kali:**
-   ```bash
-   sudo apt update
-   sudo apt install kismet -y
-   ```
-2. **Đưa card `wlan7` sang Monitor Mode làm ăng-ten cho Kismet:**
-   ```bash
-   sudo ip link set wlan7 down
-   sudo iw dev wlan7 set type monitor
-   sudo ip link set wlan7 up
-   ```
-3. **Khởi chạy Kismet Daemon quét trên card monitor mode:**
-   ```bash
-   sudo kismet -c wlan7 --no-sqlite
-   ```
-4. **Khởi chạy script Cầu nối API đồng bộ Log [kismet_to_elk.py](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/src/kismet_to_elk.py):**
-   ```bash
-   python3 src/kismet_to_elk.py
-   ```
-   *Script này sẽ liên tục quét Kismet Web API, dịch các trường thô và xuất ra file `/var/log/virtual-wips/wips-alerts.json`.*
-
-### Bước 4: Tạo Bộ sinh Sự kiện Mạng Tương quan (`network_event_generator.py`)
-Khởi chạy bộ sinh log mạng (DHCP, DNS, Firewall) để phục vụ kịch bản tương quan SIEM:
-```bash
-python3 src/network_event_generator.py
-```
-
-### Bước 5: Thiết lập Quyền truy cập Log cho Container Logstash
-Cấp quyền đọc/ghi cho container Docker truy cập file log trên Host:
-```bash
-sudo chmod -R 755 /var/log/virtual-wips
-sudo chmod -R 755 /var/log/virtual-network
-sudo touch /var/log/virtual-wips/wips-alerts.json
-sudo touch /var/log/virtual-network/network-events.json
-sudo chmod 666 /var/log/virtual-wips/wips-alerts.json
-sudo chmod 666 /var/log/virtual-network/network-events.json
+output {
+  if "wids" in [tags] {
+    elasticsearch {
+      hosts => ["https://ecp-elasticsearch:9200"]
+      user => "elastic"
+      password => "${ELASTIC_PASSWORD}"
+      ssl_enabled => true
+      ssl_certificate_authorities => ["/usr/share/logstash/config/certs/ca/ca.crt"]
+      index => "%{[@metadata][index_prefix]}-%{+YYYY.MM.dd}"
+    }
+  }
+}
 ```
 
 ---
 
-## 4. WIPS Active Response - Động Cơ Phản Ứng Chủ Động
+## 3. Quy Trình Thực Thực Nghiệm Từng Bước
 
-Động cơ phản ứng chủ động [wips_elk_containment_simulator.py](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/src/wips_elk_containment_simulator.py) sẽ liên tục theo dõi (tail) file log JSON của WIDS (do `kismet_to_elk.py` ghi nhận). 
-
-Khi Kismet phát hiện tấn công mạng không dây:
-1. Nó đẩy alert qua REST API.
-2. Script Bridge chuyển hóa thành sự kiện JSON và ghi vào `wips-alerts.json`.
-3. Daemon Active Response bắt được sự kiện `evil_twin_detected` hoặc `deauth_flood` và lập tức chặn cách ly MAC/IP vi phạm bằng cách ghi vào `simulated_blacklist.txt`.
-4. Ghi nhận nhật ký cách ly vào `/var/log/virtual-wips/active-response.log` để Kibana hiển thị sự thành công của WIPS.
-
----
-
-## 5. Kịch Bản Tấn Công Thực Tế Tạo Cảnh Báo Cho Kismet (Live Demo)
-
-Để Kismet phát hiện và hệ thống SIEM hoạt động, bạn **phải thực hiện các hành vi tấn công thật** trên card vô tuyến ảo của máy host Kali:
-
-### Kịch bản 1: Tấn công Deauthentication Flood (Phát hiện Deauth Flood)
-Sử dụng công cụ `aireplay-ng` bắn liên tục các gói tin hủy xác thực giả mạo để ngắt kết nối của các client ảo trong Mininet-WiFi:
+### Bước 1: Khởi động Toàn bộ Hạ tầng bằng `run_project.sh`
+Thay vì phải cấu hình thủ công từng thành phần, bạn chỉ cần thực thi script điều khiển hợp nhất:
 ```bash
-# Gửi 150 gói deauth giả mạo AP1 (00:00:00:00:01:00) tới client sta1 (DE:AD:BE:EF:00:01)
-sudo aireplay-ng -0 150 -a 00:00:00:00:01:00 -c DE:AD:BE:EF:00:01 wlan7
+sudo ./run_project.sh
 ```
-* **Phản ứng của WIDS:** Kismet phát hiện số lượng gói deauth vượt ngưỡng $\rightarrow$ Kích hoạt cảnh báo `DEAUTH_FLOOD`.
-* **Phản ứng của SIEM:** Logstash nhận log $\rightarrow$ Đẩy lên Dashboard $\rightarrow$ Active Response đưa MAC kẻ tấn công vào `simulated_blacklist.txt`.
+* **Chọn Menu `[2]`**: Hệ thống sẽ tự động thực hiện:
+  1. Khởi động cụm SIEM Docker (Elasticsearch, Logstash, Kibana) ngầm.
+  2. Nạp driver `mac80211_hwsim` cấu hình **16 radios ảo** (wlan0 đến wlan15).
+  3. Cấu hình NetworkManager để bỏ qua toàn bộ card mạng ảo `wlan*`, tránh Kernel Panic.
+  4. Khởi chạy topo mạng Mininet-WiFi (`dense_wifi_topology.py`).
+  5. Đưa card `wlan15` sang chế độ **Monitor Mode** khóa kênh 11.
+  6. Khởi động ngầm **Kismet WIDS** lắng nghe trên card `wlan15`.
+  7. Khởi chạy ngầm **Active WIPS Daemon** (`kismet_wips_daemon.py`) để bắt đầu poll API.
 
-### Kịch bản 2: Tấn công Evil Twin (Phát hiện Rogue AP)
-Khi Mininet-WiFi chạy `dense_wifi_topology.py`, node `rogueap` sẽ phát sóng SSID `Company-WiFi` nhưng dùng mã hóa Open trên kênh 11.
-* **Phản ứng của WIDS:** Kismet quét qua kênh 11, phát hiện AP lạ phát trùng SSID nội bộ nhưng sai địa chỉ BSSID và cấu hình mã hóa Open $\rightarrow$ Kích hoạt cảnh báo `evil_twin_detected` / `rogue_ap_detected`.
-* **Phản ứng của SIEM:** Đẩy alert mức `Critical` lên Kibana $\rightarrow$ Active Response cách ly BSSID của Rogue AP.
+### Bước 2: Thực Hiện Kịch Bản Tấn Công Để Kích Hoạt WIDS
+Mở một Terminal mới trên Host Kali và thực thi script tấn công:
+```bash
+sudo ./src/kali_wids_attacks.sh
+```
+
+#### 🛡️ Kịch bản 1: Tấn công Deauthentication Flood (Phát hiện và Cô lập)
+* Trên menu của `kali_wids_attacks.sh`, chọn **`1`** (Deauth Attack) hoặc **`4`** (Amok Deauth).
+* Script sẽ sử dụng `aireplay-ng` qua card chuyên dụng `wlan14` gửi hàng loạt deauth frame.
+* **Quy trình xử lý tự động**:
+  1. Kismet phát hiện mật độ Deauth bất thường $\rightarrow$ Sinh cảnh báo qua REST API.
+  2. `kismet_wips_daemon.py` poll được cảnh báo $\rightarrow$ Tạo sự kiện JSON lưu vào `wips-alerts.json`.
+  3. Logstash phát hiện tệp log thay đổi $\rightarrow$ Đẩy lên Elasticsearch.
+  4. Đồng thời, `kismet_wips_daemon.py` phát hiện cuộc tấn công Deauth $\rightarrow$ Tự động trích xuất MAC kẻ tấn công đưa vào tường lửa chặn (`simulated_blacklist.txt`) và ghi nhật ký chặn vào `active-response.log`.
+
+#### 🛡️ Kịch bản 2: Tấn công Evil Twin / Rogue AP
+* Khi Mininet-WiFi khởi chạy, node `rogueap` tự động phát sóng SSID `Company-WiFi` nhưng dùng mã hóa Open trên kênh 11.
+* **Quy trình xử lý tự động**:
+  1. Kismet quét qua kênh 11, phát hiện AP giả mạo trùng SSID nhưng sai BSSID và cấu hình bảo mật $\rightarrow$ Sinh alert `SSID_SPOOFING` / `ROGUE_AP`.
+  2. `kismet_wips_daemon.py` ghi nhận sự kiện $\rightarrow$ Tự động kích hoạt **Wireless Deauth Containment**: dùng `aireplay-ng` qua card `wlan14` liên tục bắn gói deauth vào AP giả mạo này để ngăn cản client ảo `sta*` kết nối vào nó.
+  3. Ghi log cô lập vào `active-response.log` và chuyển tiếp thông tin an ninh lên Kibana Dashboard.
 
 ---
 
-## 6. Kịch Bản Demo & Hướng Dẫn Thuyết Trình Đồ Án Kismet
+## 4. Kịch Bản Demo & Hướng Dẫn Thuyết Trình Trước Hội Đồng
 
-Mở **6 cửa sổ Terminal** chuyên nghiệp trên màn hình Kali Linux để trình diễn trực quan luồng tương quan SIEM:
+Để thuyết trình đề tài một cách ấn tượng và thuyết phục nhất, hãy mở các cửa sổ Terminal như sau:
 
-| Terminal | Lệnh thực thi | Mục tiêu trình diễn |
+| Terminal | Mục tiêu trình diễn | Chi tiết hiển thị |
 | :--- | :--- | :--- |
-| **Terminal 1** | `cd SIEM && docker-compose up -d` | Khởi động hạ tầng ELK Stack. |
-| **Terminal 2** | `sudo python3 src/dense_wifi_topology.py` | Tạo môi trường mạng vô tuyến giả lập bằng Mininet-WiFi. |
-| **Terminal 3** | `sudo kismet -c wlan7 --no-sqlite` | Chạy real WIDS Kismet lắng nghe trên card vô tuyến ảo monitor mode. |
-| **Terminal 4** | `python3 src/kismet_to_elk.py` | Khởi chạy cầu nối API đồng bộ log Kismet sang JSON ELK theo thời gian thực. |
-| **Terminal 5** | `python3 src/network_event_generator.py` | Chạy bộ sinh log mạng giả lập (DHCP, Firewall, DNS) để phục vụ tương quan. |
-| **Terminal 6** | `python3 src/wips_elk_containment_simulator.py` | Chạy Active Response Engine để tự động khóa IP/MAC vi phạm vào blacklist. |
-| **Terminal 7 (Tấn công)** | `sudo aireplay-ng -0 100 -a ...` | Thực hiện tấn công thật để Hội đồng thấy log nhảy liên tục qua các Terminal và hiển thị tức thời trên Kibana Dashboard (< 3 giây). |
+| **Terminal 1** (Host) | Bảng điều khiển `run_project.sh` | Show quá trình cấu hình Driver 16 radios, tự động cấu hình bypass NetworkManager, và prompt điều khiển Mininet-WiFi (`mininet-wifi>`). |
+| **Terminal 2** (Host) | Monitor Log Cô lập | Chạy lệnh `tail -f /var/log/virtual-wips/active-response.log` để show thời gian thực WIPS tự động kích hoạt ngăn chặn, block IP/MAC và kích hoạt deauth cách ly. |
+| **Terminal 3** (Host) | Trình tấn công `kali_wids_attacks.sh` | Thực hiện các tùy chọn tấn công trực quan (bắn deauth, beacon flood). |
+| **Trình duyệt Web** | Giao diện Kibana SIEM | Truy cập `https://localhost:5601`, trình diễn Dashboard tương quan an ninh vô tuyến trực quan, biểu đồ timeline nhảy vọt ngay khi bấm tấn công (độ trễ < 3 giây). |
 
-### Các lập luận "ăn điểm" thuyết phục hội đồng với Kismet WIDS:
-1. **Tính thực tiễn cao:** Đề tài không chỉ dừng lại ở lý thuyết giả lập, mà đã tích hợp thành công **Kismet WIDS thật** - công cụ tiêu chuẩn ngành được các chuyên gia bảo mật sử dụng toàn cầu.
-2. **Kỹ thuật sniffing tiên tiến:** Sử dụng card mạng ảo ở chế độ **Monitor Mode** kết hợp driver kernel `mac80211_hwsim` để bắt trực tiếp các khung hình 802.11 ảo, giải quyết được bài toán ảo hóa card Wi-Fi trên các máy ảo (VMware/VirtualBox).
-3. **Kiến trúc phân tách (Decoupled Architecture):** Sử dụng API bridge giúp hệ thống SIEM cực kỳ linh hoạt. Khi triển khai thực tế, chỉ cần thay card mạng ảo bằng card mạng vật lý USB (như Alfa AWUS036ACM), hệ thống sẽ lập tức giám sát và bảo vệ văn phòng thật mà không cần thay đổi bất kỳ dòng cấu hình ELK nào!
+### 💡 Các lập luận "đắt giá" bảo vệ đề tài:
+1. **Khắc phục triệt để hạn chế tài nguyên**: Sử dụng driver `mac80211_hwsim` với 16 radios giúp cách ly hoàn toàn môi trường mạng thật của Host (`wlan0`) với môi trường Mininet-WiFi (`wlan0-11`) và các card an ninh (`wlan14-15`), đảm bảo lab chạy cực kỳ ổn định không bị mất mạng hay treo đơ máy.
+2. **Kỹ thuật sniffer lai thực tế (Hybrid Emulation)**: Hệ thống sử dụng công cụ WIDS tiêu chuẩn **Kismet** thực thụ để bắt và phân tích frame thô 802.11 ảo, chứng minh khả năng làm chủ công nghệ WIDS/WIPS cấp độ doanh nghiệp.
+3. **Quy trình WIPS khép kín và tự động**: WIPS daemon không chỉ cảnh báo mà còn chủ động phản ứng bằng cơ chế phản kích vô tuyến (Deauth Containment qua `wlan14`) và ngăn chặn mạng (Blacklist), giải quyết trọn vẹn bài toán phản ứng phòng vệ vô tuyến.
