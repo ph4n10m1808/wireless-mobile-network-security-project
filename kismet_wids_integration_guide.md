@@ -87,7 +87,7 @@ graph TD
         subgraph WIDS ["Hệ Thống Giám Sát & Cầu Nối (WIDS)"]
             w7 -->|Đọc gói tin thô 802.11| K["Kismet WIDS Daemon<br>(Cổng 2501, lọc Alert)"]:::wids
             K -->|Cung cấp Alert REST API| KA["/alerts/all_alerts.json"]:::wids
-            KA -->|Polling API (2s/lần)| B["kismet_to_elk.py<br>(Bridge chuyển đổi JSON)"]:::wids
+            KA -->|Polling API 2s-lan| B["kismet_to_elk.py<br>(Bridge chuyển đổi JSON)"]:::wids
             B -->|Ghi log chuẩn hóa| L["wips-alerts.json<br>(/var/log/virtual-wips/)"]:::wids
         end
     end

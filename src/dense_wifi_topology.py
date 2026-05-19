@@ -1,7 +1,7 @@
 #!/opt/miniconda3/envs/network/bin/python
 # dense_wifi_topology.py
 # Mô phỏng mạng Wi-Fi mật độ cao với 3 AP hợp lệ, 1 Rogue AP và 8 trạm client.
-# Sử dụng mac80211_hwsim (không có wmediumd) để card wlan7 trên Host
+# Sử dụng mac80211_hwsim (không có wmediumd) để card wlan15 trên Host
 # có thể bắt gói tin trực tiếp từ tất cả AP ảo (dùng cho Kismet WIDS / Airgeddon).
 
 import subprocess
@@ -12,13 +12,62 @@ from mn_wifi.cli import CLI
 from mininet.log import setLogLevel, info
 
 # -------------------------------------------------------------------
+# Hàm tiện ích: Cấu hình NetworkManager để bỏ qua toàn bộ card ảo
+# -------------------------------------------------------------------
+def configure_network_manager():
+    """
+    Tạo cấu hình NetworkManager để bỏ qua toàn bộ card mạng ảo wlan*,
+    tránh việc NetworkManager quét sóng và tranh chấp tài nguyên gây sập nguồn (Kernel Panic).
+    Giữ lại wlan0 (card mạng thật của Host) để người dùng không bị mất mạng.
+    """
+    conf_path = '/etc/NetworkManager/conf.d/99-unmanage-hwsim.conf'
+    conf_content = """[keyfile]
+unmanaged-devices=interface-name:wlan*,except:interface-name:wlan0;interface-name:sta*-wlan*;interface-name:ap*-wlan*
+"""
+    if os.path.exists('/etc/NetworkManager/conf.d'):
+        info("*** [NetworkManager] Cấu hình để bỏ qua các interface ảo...\n")
+        try:
+            already_configured = False
+            if os.path.exists(conf_path):
+                with open(conf_path, 'r') as f:
+                    if f.read().strip() == conf_content.strip():
+                        already_configured = True
+            
+            if not already_configured:
+                with open(conf_path, 'w') as f:
+                    f.write(conf_content)
+                info("[+] Đã tạo file cấu hình: /etc/NetworkManager/conf.d/99-unmanage-hwsim.conf\n")
+                # Reload NetworkManager để áp dụng ngay lập tức
+                subprocess.run(['systemctl', 'reload', 'NetworkManager'], capture_output=True)
+                info("[+] Đã reload NetworkManager để áp dụng cấu hình mới\n")
+            else:
+                info("[+] NetworkManager đã được cấu hình từ trước — Bỏ qua\n")
+        except Exception as e:
+            info(f"[!] Lỗi khi cấu hình NetworkManager: {e}\n")
+
+
+# -------------------------------------------------------------------
+# Hàm tiện ích: Dọn dẹp tài nguyên rác trước khi nạp module
+# -------------------------------------------------------------------
+def cleanup_before_reload():
+    """
+    Dọn dẹp các tiến trình kismet và dọn dẹp Mininet-WiFi cũ
+    để giải phóng hoàn toàn driver mac80211_hwsim trước khi nạp lại.
+    """
+    info("*** [Dọn dẹp] Tắt các tiến trình kismet và dọn dẹp Mininet cũ...\n")
+    subprocess.run(['killall', '-9', 'kismet'], capture_output=True)
+    subprocess.run(['mn', '-c'], capture_output=True)
+
+
+# -------------------------------------------------------------------
 # Hàm tiện ích: Nạp lại mac80211_hwsim với đúng số radios
 # -------------------------------------------------------------------
-def reload_hwsim(radios=8):
+def reload_hwsim(radios=16):
     """
     Đảm bảo driver mac80211_hwsim được nạp với đúng số lượng radio ảo.
-    Mininet-WiFi có thể nạp lại driver với số radio mặc định (2) nếu
-    không được chỉ định, làm mất card wlan7.
+    Sử dụng 16 radios giúp tránh tranh chấp namespace giữa Host và Mininet-WiFi.
+    Mininet-WiFi sẽ lấy các card wlan0-wlan11 cho 8 Stations và 4 APs,
+    để lại các card wlan12-wlan15 cho Host (wlan15 dùng làm monitor).
     """
     info(f"*** Kiểm tra và nạp mac80211_hwsim với {radios} radios\n")
     # Gỡ module cũ nếu đang chạy
@@ -34,13 +83,13 @@ def reload_hwsim(radios=8):
 
 # -------------------------------------------------------------------
 # Vá lỗi: Ngăn Mininet-WiFi gỡ mac80211_hwsim khi thoát
-# để giữ nguyên card wlan7 cho Kismet và Airgeddon
+# để giữ nguyên card wlan15 cho Kismet và Airgeddon
 # -------------------------------------------------------------------
 def patch_cleanup():
     """
     Mininet-WiFi 2.7 gọi 'rmmod mac80211_hwsim' thông qua
     Cleanup.kill_mod() trong mn_wifi/clean.py khi net.stop() được gọi.
-    Điều này xóa sạch wlan7 khiến Kismet mất interface.
+    Điều này xóa sạch wlan15 khiến Kismet mất interface.
     Hàm này vô hiệu hóa hành vi đó bằng cách monkey-patch Cleanup.kill_mod
     để bỏ qua riêng module mac80211_hwsim.
     """
@@ -51,7 +100,7 @@ def patch_cleanup():
         @classmethod
         def _patched_kill_mod(cls, module):
             if module == 'mac80211_hwsim':
-                info("[+] Bỏ qua rmmod mac80211_hwsim (đã vá) — wlan7 được giữ nguyên\n")
+                info("[+] Bỏ qua rmmod mac80211_hwsim (đã vá) — wlan15 được giữ nguyên\n")
                 return
             _orig_kill_mod(cls, module)
 
@@ -61,9 +110,9 @@ def patch_cleanup():
         info(f"[!] Không thể vá hàm unload: {e}\n")
 
 
-def setup_monitor_wlan7(iface='wlan7', channel=11):
+def setup_monitor_wlan15(iface='wlan15', channel=11):
     """
-    Chuyển wlan7 sang monitor mode và lock vào kênh chỉ định.
+    Chuyển wlan15 sang monitor mode và lock vào kênh chỉ định.
     Gọi sau khi net.build() hoàn tất.
     """
     info(f"*** Cấu hình {iface} -> monitor mode (ch{channel})\n")
@@ -82,15 +131,39 @@ def setup_monitor_wlan7(iface='wlan7', channel=11):
     return True
 
 
+def start_ovs():
+    """
+    Khởi động dịch vụ Open vSwitch (openvswitch-switch) trước khi Mininet-WiFi
+    build topology. OVS là bắt buộc để Mininet quản lý switch ảo.
+    """
+    info("*** Khởi động dịch vụ Open vSwitch (openvswitch-switch)...\n")
+    result = subprocess.run(
+        ['service', 'openvswitch-switch', 'start'],
+        capture_output=True
+    )
+    if result.returncode == 0:
+        info("[+] Open vSwitch đã khởi động thành công.\n")
+    else:
+        info(f"[!] Cảnh báo: Không thể khởi động Open vSwitch: {result.stderr.decode().strip()}\n")
+        info("    Vui lòng chạy thủ công: sudo service openvswitch-switch start\n")
+
+
 def topology():
-    # --- Bước 1: Đảm bảo có đủ 8 radios ảo TRƯỚC khi Mininet khởi động ---
-    reload_hwsim(radios=8)
+    # --- Bước -1: Cấu hình NetworkManager để tránh Kernel Panic ---
+    configure_network_manager()
+
+    # --- Bước 0: Khởi động Open vSwitch (bắt buộc cho Mininet switch ảo) ---
+    start_ovs()
+
+    # --- Bước 1: Dọn dẹp tài nguyên cũ và nạp lại mac80211_hwsim ---
+    cleanup_before_reload()
+    reload_hwsim(radios=16)
     patch_cleanup()
 
-    # --- Bước 2: Khởi tạo mạng (KHÔNG dùng wmediumd để host wlan7 có thể thấy AP) ---
+    # --- Bước 2: Khởi tạo mạng (KHÔNG dùng wmediumd để host wlan15 có thể thấy AP) ---
     net = Mininet_wifi(
         controller=Controller,
-        # Không dùng link=wmediumd để tránh chặn gói tin từ card host (wlan7)
+        # Không dùng link=wmediumd để tránh chặn gói tin từ card host (wlan15)
     )
 
     # --- Bước 3: Thêm 8 Trạm Client ---
@@ -159,11 +232,10 @@ def topology():
     ap3.start([c1])
     rogueap.start([c1])
 
-    # --- Bước 7: Cấu hình wlan7 -> monitor mode tự động ---
-    setup_monitor_wlan7(iface='wlan7', channel=11)
+    # --- Bước 7: Cấu hình wlan15 -> monitor mode tự động ---
+    setup_monitor_wlan15(iface='wlan15', channel=11)
     info("    Khởi động Kismet bằng lệnh:\n")
-    info("    sudo kismet -c wlan7:hop=false,channel=11 --no-sqlite --homedir /home/ph4n10m\n")
-
+    info("    sudo kismet -c wlan15:hop=false,channel=11 --no-sqlite --homedir /home/ph4n10m\n")
     info("\n[BSSIDs của topology này]\n")
     info("  ap1      (Company-WiFi , CH 1 ): 02:00:00:00:1c:00  [HỢP LỆ]\n")
     info("  ap2      (Company-WiFi , CH 6 ): 02:00:00:00:1d:00  [HỢP LỆ]\n")
@@ -179,7 +251,7 @@ def topology():
 
     info("*** Đang dừng hệ thống mạng...\n")
     net.stop()
-    info("[+] Topology đã dừng. mac80211_hwsim vẫn còn (wlan7 không bị xóa)\n")
+    info("[+] Topology đã dừng. mac80211_hwsim vẫn còn (wlan15 không bị xóa)\n")
 
 
 if __name__ == '__main__':
