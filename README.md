@@ -80,7 +80,6 @@ flowchart TB
   - 📄 `dense_wifi_topology.py`: Script Python thiết lập mạng Wi-Fi ảo mật độ cao bằng Mininet-WiFi, tự động vá lỗi giữ driver và cấu hình card monitor `wlan15`.
   - 📄 `kismet_wips_daemon.py`: Động cơ ngăn chặn chủ động (WIPS) & API Bridge kết hợp, xử lý phát hiện, ghi logs chuẩn hóa và kích hoạt deauth cách ly qua `wlan14`.
   - 📄 `kali_wids_attacks.sh`: Shell script giả lập tấn công thực nghiệm sử dụng `aireplay-ng` và `mdk4` trên card `wlan14`.
-  - 📄 `test_wids_attacks.sh`: Script kịch bản tấn công kiểm thử tự động.
 - 📂 **`SIEM/`**: Chứa hạ tầng bảo mật SIEM chạy trên nền Docker:
   - 📄 `docker-compose.yml`: Khai báo 3 dịch vụ Elasticsearch, Logstash, Kibana (phiên bản v9.0.1 bảo mật cao).
   - 📂 `logstash/pipeline/logstash.conf`: Cấu hình tiếp nhận log file và đẩy index Elasticsearch.
@@ -134,7 +133,7 @@ Giao diện tấn công xuất hiện, cho phép bạn kích hoạt:
 
 ---
 
-## 📊 Cấu Hùi Dashboard Kibana SIEM
+## 📊 Cấu Hình Dashboard Kibana SIEM
 
 1. Mở trình duyệt Web trên Host truy cập: `https://localhost:5601`
 2. Đăng nhập với tài khoản: **`elastic`** / Mật khẩu: **`Vsl@2026`**

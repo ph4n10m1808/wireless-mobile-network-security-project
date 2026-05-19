@@ -112,7 +112,7 @@ output {
 
 ---
 
-## 3. Quy Trình Thực Thực Nghiệm Từng Bước
+## 3. Quy Trình Thực Nghiệm Từng Bước
 
 ### Bước 1: Khởi động Toàn bộ Hạ tầng bằng `run_project.sh`
 Thay vì phải cấu hình thủ công từng thành phần, bạn chỉ cần thực thi script điều khiển hợp nhất:

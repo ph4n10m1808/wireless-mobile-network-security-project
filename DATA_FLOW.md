@@ -51,7 +51,6 @@ flowchart TB
     end
 
     LOG_WIPS -->|"file input\n(bind mount :ro)"| LOGSTASH
-    LOG_KISMET -->|"file input\n(bind mount :ro)"| LOGSTASH
 ```
 
 ---
