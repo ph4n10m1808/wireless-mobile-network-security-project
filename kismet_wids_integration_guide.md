@@ -84,11 +84,11 @@ graph TD
             atk -.->|Bắn gói tin hủy xác thực| w7
         end
 
-        subgraph WIDS ["Hệ Thống Giám Sát & Cầu Nối (WIDS)"]
+        subgraph WIDS ["Hệ Thống Giám Sát & Ngăn Chặn (WIDS/WIPS)"]
             w7 -->|Đọc gói tin thô 802.11| K["Kismet WIDS Daemon<br>(Cổng 2501, lọc Alert)"]:::wids
             K -->|Cung cấp Alert REST API| KA["/alerts/all_alerts.json"]:::wids
-            KA -->|Polling API 2s-lan| B["kismet_to_elk.py<br>(Bridge chuyển đổi JSON)"]:::wids
-            B -->|Ghi log chuẩn hóa| L["wips-alerts.json<br>(/var/log/virtual-wips/)"]:::wids
+            KA -->|Polling API & Active response| AR["kismet_wips_daemon.py<br>(WIPS Engine & Bridge)"]:::wids
+            AR -->|Ghi log chuẩn hóa| L["wips-alerts.json<br>(/var/log/kismet-wips/)"]:::wids
         end
     end
 
@@ -97,14 +97,12 @@ graph TD
         LS -->|Elasticsearch Index| ES["Elasticsearch"]:::siem
         ES -->|Trực quan hóa| KB["Kibana SIEM Dashboard"]:::siem
         
-        %% Active Response Connection
-        L -->|Real-time Tail| AR["wips_elk_containment_simulator.py<br>(Active Response Engine)"]:::siem
-        AR -->|Chặn tự động| BL["simulated_blacklist.txt"]:::siem
+        AR -->|Block IP/MAC| BL["simulated_blacklist.txt"]:::wids
     end
 ```
 
 > [!NOTE]
-> Để tránh việc phải cấu hình lại toàn bộ bộ lọc Logstash phức tạp và Dashboard Kibana, chúng ta sử dụng một script cầu nối trung gian: [kismet_to_elk.py](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/src/kismet_to_elk.py). Script này sẽ tự động kéo các cảnh báo thô của Kismet qua API, dịch chúng sang cấu trúc JSON chuẩn hóa tương thích ngược 100% với hệ thống của bạn.
+> Để tránh việc phải cấu hình lại toàn bộ bộ lọc Logstash phức tạp và Dashboard Kibana, chúng ta sử dụng một bộ điều khiển trung tâm: [kismet_wips_daemon.py](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/src/kismet_wips_daemon.py). Daemon này sẽ tự động kéo các cảnh báo thô từ Kismet API, dịch chúng sang cấu trúc JSON chuẩn hóa tương thích ngược 100% với hệ thống SIEM cũ, đồng thời tự động kích hoạt phản ứng ngăn chặn deauth và cập nhật tường lửa blacklist.
 
 ---
 
@@ -142,12 +140,12 @@ sudo kismet -c wlan7 --no-sqlite
 ```
 *Lưu ý:* Tham số `--no-sqlite` giúp Kismet chạy nhẹ hơn trong môi trường Lab ảo hóa bằng cách giảm thiểu ghi đĩa không cần thiết, chỉ tập trung xử lý trong RAM và đẩy ra API.
 
-### Bước 3.4: Chạy Cầu Nối API Đồng Bộ Log [kismet_to_elk.py](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/src/kismet_to_elk.py)
-Khởi chạy script cầu nối mà chúng tôi đã xây dựng sẵn cho bạn tại thư mục `src/`:
+### Bước 3.4: Khởi Chạy WIPS Active Response Daemon [kismet_wips_daemon.py](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/src/kismet_wips_daemon.py)
+Khởi chạy daemon WIPS an ninh mạng mà chúng tôi đã xây dựng sẵn cho bạn tại thư mục `src/`:
 ```bash
-python3 src/kismet_to_elk.py
+sudo python3 src/kismet_wips_daemon.py
 ```
-Script này hoạt động như một daemon liên tục giám sát Kismet API (mặc định tại cổng `2501`) và tự động ghi nhận log vào `/var/log/virtual-wips/wips-alerts.json` bất cứ khi nào Kismet phát hiện mối đe dọa không dây thực tế.
+Script này hoạt động như một daemon liên tục giám sát Kismet API (mặc định tại cổng `2501`), tự động ghi nhận log chuẩn hóa vào `/var/log/kismet-wips/wips-alerts.json` bất cứ khi nào Kismet phát hiện mối đe dọa không dây thực tế, đồng thời gửi gói tin deauthentication cách ly vô tuyến qua card `wlan14`.
 
 ---
 
@@ -172,6 +170,6 @@ Script này hoạt động như một daemon liên tục giám sát Kismet API (
 ---
 
 ## 🎯 Đánh Giá và Lời Khuyên Cho Lần Bảo Vệ Đồ Án
-* **Phương án an toàn nhất (Khuyên dùng)**: Khi thuyết trình trước Hội đồng, hãy chuẩn bị **cả 2 phương án**. 
-  * Hãy bắt đầu demo bằng `virtual_wips_detector.py` để đảm bảo kịch bản chạy mượt mà, trơn tru từ đầu đến cuối và show toàn bộ Dashboard Kibana lung linh.
-  * Sau đó, mở slide giải thích kiến trúc và tự tin tuyên bố: *"Hệ thống này hoàn toàn có thể tích hợp trực tiếp với WIDS Kismet thực tế bằng cách lắng nghe qua interface ảo monitor mode và đồng bộ API"* và thực hiện demo nhanh bằng `kismet_to_elk.py` để tạo sự bất ngờ và thuyết phục điểm số tuyệt đối từ Hội đồng chấm thi!
+* **Báo cáo và Demo Thực Tế (Khuyên dùng)**: Khi thuyết trình trước Hội đồng, hãy tự tin trình bày hệ thống tích hợp Kismet WIDS/WIPS thật.
+  * Việc tích hợp **Kismet WIDS thật** bắt gói tin qua card `wlan15` chế độ monitor và xử lý qua **WIPS Daemon (`kismet_wips_daemon.py`)** để ngăn chặn bằng deauth thực tế mang lại tính thực tiễn và chuyên nghiệp cực kỳ cao.
+  * Nhấn mạnh với Hội đồng rằng hệ thống của bạn đã vượt qua giai đoạn mô phỏng log đơn thuần (`virtual_wips_detector.py` cũ) để tiến tới một hệ thống phát hiện và phản ứng an ninh không dây thời gian thực có thể triển khai trực tiếp ngoài thực tế. Điều này sẽ giúp bạn đạt điểm số tuyệt đối thuyết phục từ Hội đồng chấm thi!

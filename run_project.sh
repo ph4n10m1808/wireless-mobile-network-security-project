@@ -25,8 +25,9 @@ PROJ_DIR="/home/ph4n10m/Code/wireless-mobile-network-security-project"
 cd "$PROJ_DIR" || exit
 
 # Đảm bảo thư mục log tồn tại và phân quyền đầy đủ trước
-mkdir -p /var/log/virtual-wips /var/log/virtual-network /var/log/kismet
-chmod -R 777 /var/log/virtual-wips /var/log/virtual-network /var/log/kismet 2>/dev/null || true
+mkdir -p /var/log/kismet-wips
+chmod -R 777 /var/log/kismet-wips 2>/dev/null || true
+rm -rf /var/log/virtual-wips /var/log/virtual-network /var/log/kismet
 
 # Biến lưu trữ lệnh docker compose khả dụng
 DOCKER_COMPOSE=""
@@ -45,14 +46,14 @@ cleanup_processes() {
   echo -e "${YELLOW}[*] Đang dừng WIDS/WIPS và các tiến trình mạng ảo...${NC}"
   killall -9 kismet >/dev/null 2>&1
   killall -9 mdk4 aireplay-ng >/dev/null 2>&1
-  pkill -f kismet_to_elk.py >/dev/null 2>&1
+  pkill -f kismet_wips_daemon.py >/dev/null 2>&1
   
   # Dọn dẹp Mininet-WiFi
   mn -c >/dev/null 2>&1
   
   # Xóa/Làm rỗng log alerts để chuẩn bị cho lượt chạy mới
-  > /var/log/virtual-wips/wips-alerts.json 2>/dev/null || true
-  chmod 777 /var/log/virtual-wips/wips-alerts.json 2>/dev/null || true
+  > /var/log/kismet-wips/wips-alerts.json 2>/dev/null || true
+  chmod 777 /var/log/kismet-wips/wips-alerts.json 2>/dev/null || true
   
   echo -e "${GREEN}[+] Đã dọn dẹp sạch sẽ tiến trình cũ.${NC}"
 }
@@ -119,12 +120,12 @@ start_project() {
     start_siem
   fi
 
-  # 2. Khởi chạy Kismet to ELK Bridge ngầm
-  echo -e "${YELLOW}[2/4] Khởi động Kismet to ELK Bridge (chạy ngầm)...${NC}"
-  $PYTHON_BIN src/kismet_to_elk.py > /var/log/virtual-wips/kismet_bridge_stdout.log 2>&1 &
+  # 2. Khởi chạy Kismet WIPS Daemon ngầm
+  echo -e "${YELLOW}[2/4] Khởi động Kismet WIPS Daemon (chạy ngầm)...${NC}"
+  $PYTHON_BIN src/kismet_wips_daemon.py > /var/log/kismet-wips/kismet_wips_daemon.log 2>&1 &
   WIPS_PID=$!
-  echo -e "      => Log Bridge: ${CYAN}/var/log/virtual-wips/kismet_bridge_stdout.log${NC}"
-  echo -e "      => Log cảnh báo WIPS JSON : ${CYAN}/var/log/virtual-wips/wips-alerts.json${NC}"
+  echo -e "      => Log WIPS Daemon: ${CYAN}/var/log/kismet-wips/kismet_wips_daemon.log${NC}"
+  echo -e "      => Log cảnh báo WIPS JSON : ${CYAN}/var/log/kismet-wips/wips-alerts.json${NC}"
 
   # 3. Kịch bản chờ tự động bật Kismet WIDS
   echo -e "${YELLOW}[3/4] Kích hoạt trigger tự động bật Kismet WIDS...${NC}"
@@ -133,7 +134,7 @@ start_project() {
     for i in {1..30}; do
       if ip link show wlan15 >/dev/null 2>&1; then
         echo -e "\n${GREEN}[Background] Phát hiện wlan15! Đang bật Kismet WIDS...${NC}"
-        kismet -c wlan15:hop=false,channel=11 --no-sqlite --homedir /home/ph4n10m >/var/log/virtual-wips/kismet.log 2>&1 &
+        kismet -c wlan15 --no-sqlite --homedir /home/ph4n10m >/var/log/kismet-wips/kismet.log 2>&1 &
         break
       fi
       sleep 2

@@ -21,3 +21,10 @@ notion_sync.py
 *.apconf
 *.kismet*
 
+# Build Dependencies & Temp VMs
+mac80211_hwsim_mgmt/
+openflow/
+wmediumd/
+vagrant/
+.vagrant/
+

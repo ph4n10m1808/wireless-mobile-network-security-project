@@ -17,7 +17,7 @@ Hệ thống được thiết kế chạy **hoàn toàn trong môi trường Kal
 3. **Bộ Ngăn Chặn Chủ Động Thực Tế (WIPS Active Containment)**:
    - **Cô lập mức sóng vô tuyến (Wireless Deauth Containment)**: Tự động dùng `aireplay-ng` qua card mạng ngăn chặn chuyên dụng `wlan14` gửi gói deauth liên tục ngắt kết nối giữa Rogue AP và client.
    - **Cô lập mức mạng (IP Blacklisting)**: Tự động chặn địa chỉ IP/MAC vi phạm và đưa vào danh sách đen tường lửa (`simulated_blacklist.txt`).
-4. **Chuẩn Hóa & Tích Hợp SIEM**: Script bridge (`kismet_wips_daemon.py` / `kismet_to_elk.py`) liên tục truy vấn REST API của Kismet, chuẩn hóa các cảnh báo thô sang cấu trúc JSON SIEM thống nhất, ghi log thời gian thực để **Logstash** phân tích và đẩy lên **Elasticsearch**.
+4. **Chuẩn Hóa & Tích Hợp SIEM**: Động cơ WIPS Daemon (`kismet_wips_daemon.py`) liên tục truy vấn REST API của Kismet, chuẩn hóa các cảnh báo thô sang cấu trúc JSON SIEM thống nhất, ghi log thời gian thực để **Logstash** phân tích và đẩy lên **Elasticsearch**.
 5. **Trực Quan Hóa Tương Tác**: Dashboard bảo mật tập trung trên **Kibana** giúp quản trị viên nắm bắt nhanh chóng tình hình an ninh vô tuyến và đưa ra phản ứng kịp thời.
 6. **Bảng Điều Khiển Hợp Nhất (`run_project.sh`)**: Script quản trị mạnh mẽ với giao diện Menu tương tác chuyên nghiệp, hỗ trợ tự động thiết lập/dọn dẹp driver, khởi chạy/tắt Mininet-WiFi topo và Docker Compose ELK Stack chỉ bằng một lệnh duy nhất.
 
@@ -47,16 +47,15 @@ flowchart TB
     end
 
     subgraph BRIDGE["🔄 Tầng Cầu nối & WIPS (Bridge / Active Prevention)"]
-        KISMET_BRIDGE["🌉 kismet_to_elk.py\nAPI Bridge (Sync logs)"]
-        KISMET_WIPS["🛡️ kismet_wips_daemon.py\nActive WIPS Daemon"]
-        KISMET -->|"REST API\n/alerts/all_alerts.json"| KISMET_BRIDGE & KISMET_WIPS
+        KISMET_WIPS["🛡️ kismet_wips_daemon.py\nActive WIPS Daemon & Bridge"]
+        KISMET -->|"REST API\n/alerts/all_alerts.json"| KISMET_WIPS
         KISMET_WIPS -.->|"Gửi gói Deauth ngăn chặn\n(aireplay-ng via wlan14)"| VIRTUAL_NET
     end
 
     subgraph LOGS["📁 Log Files (Host Filesystem)"]
-        LOG_WIPS["/var/log/virtual-wips/\nwips-alerts.json\nNewline-delimited JSON"]
-        LOG_RESPONSE["/var/log/virtual-wips/\nactive-response.log\nNhật ký cách ly"]
-        KISMET_BRIDGE & KISMET_WIPS -->|"ghi JSON chuẩn hóa"| LOG_WIPS
+        LOG_WIPS["/var/log/kismet-wips/\nwips-alerts.json\nNewline-delimited JSON"]
+        LOG_RESPONSE["/var/log/kismet-wips/\nactive-response.log\nNhật ký cách ly"]
+        KISMET_WIPS -->|"ghi JSON chuẩn hóa"| LOG_WIPS
         KISMET_WIPS -->|"ghi logs cô lập"| LOG_RESPONSE
     end
 
@@ -80,13 +79,11 @@ flowchart TB
 - 📂 **`src/`**: Thư mục chứa mã nguồn chính của ứng dụng:
   - 📄 `dense_wifi_topology.py`: Script Python thiết lập mạng Wi-Fi ảo mật độ cao bằng Mininet-WiFi, tự động vá lỗi giữ driver và cấu hình card monitor `wlan15`.
   - 📄 `kismet_wips_daemon.py`: Động cơ ngăn chặn chủ động (WIPS) & API Bridge kết hợp, xử lý phát hiện, ghi logs chuẩn hóa và kích hoạt deauth cách ly qua `wlan14`.
-  - 📄 `kismet_to_elk.py`: Script cầu nối API đơn giản hóa chuyển tiếp Kismet Alerts -> JSON log SIEM.
   - 📄 `kali_wids_attacks.sh`: Shell script giả lập tấn công thực nghiệm sử dụng `aireplay-ng` và `mdk4` trên card `wlan14`.
   - 📄 `test_wids_attacks.sh`: Script kịch bản tấn công kiểm thử tự động.
 - 📂 **`SIEM/`**: Chứa hạ tầng bảo mật SIEM chạy trên nền Docker:
   - 📄 `docker-compose.yml`: Khai báo 3 dịch vụ Elasticsearch, Logstash, Kibana (phiên bản v9.0.1 bảo mật cao).
   - 📂 `logstash/pipeline/logstash.conf`: Cấu hình tiếp nhận log file và đẩy index Elasticsearch.
-  - 📂 `logstash/pipeline/kismet.conf`: Cấu hình pipeline riêng biệt xử lý các định dạng log Kismet trực tiếp.
   - 📄 `kibana.yml` & `generate_key.sh`: Cấu hình bảo mật mã hóa cho Kibana.
 - 📄 **`DATA_FLOW.md`**: Tài liệu đặc tả kỹ thuật chi tiết về luồng dữ liệu, schema JSON sự kiện an ninh.
 - 📄 **`kismet_siem_elk_plan.md`**: Bản kế hoạch triển khai, cấu hình chi tiết và các kịch bản demo bảo vệ đề tài.

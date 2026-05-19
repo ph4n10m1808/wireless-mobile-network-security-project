@@ -29,20 +29,16 @@ flowchart TB
         VIRTUAL_NET -.->|"virtual radio frames\n(mac80211_hwsim)"| WLAN7
     end
 
-    subgraph BRIDGE["🔄 Tầng Cầu nối (Bridge/ETL Layer)"]
-        KISMET_BRIDGE["🌉 kismet_to_elk.py\nKismet REST API Bridge\nPolling: /alerts/all_alerts.json\nevery 2 seconds"]
-        KISMET_WIPS["🛡️ kismet_wips_daemon.py\nActive WIPS Daemon\nPolling & Containment Engine"]
-        KISMET -->|"REST API\nHTTP GET\n/alerts/all_alerts.json"| KISMET_BRIDGE & KISMET_WIPS
+    subgraph BRIDGE["🔄 Tầng Cầu nối & WIPS (WIPS & Bridge Layer)"]
+        KISMET_WIPS["🛡️ kismet_wips_daemon.py\nActive WIPS Daemon & Bridge\nPolling & Containment Engine"]
+        KISMET -->|"REST API\nHTTP GET\n/alerts/all_alerts.json"| KISMET_WIPS
         KISMET_WIPS -->|"Active Containment (Firewall/Deauth)"| VIRTUAL_NET
     end
 
     subgraph LOGS["📁 Log Files (Host Filesystem)"]
         direction LR
-        LOG_WIPS["/var/log/virtual-wips/\nwips-alerts.json\nNewline-delimited JSON"]
-        LOG_KISMET["/var/log/kismet/\nkismet raw logs"]
-        KISMET_BRIDGE -->|"ghi JSON chuẩn hóa"| LOG_WIPS
+        LOG_WIPS["/var/log/kismet-wips/\nwips-alerts.json\nNewline-delimited JSON"]
         KISMET_WIPS -->|"ghi JSON chuẩn hóa\n& active response log"| LOG_WIPS
-        KISMET -->|"raw log output"| LOG_KISMET
     end
 
     subgraph SIEM["📊 Tầng SIEM (ELK Stack — Docker)"]
@@ -67,8 +63,7 @@ sequenceDiagram
     participant MN  as 🖥️ Mininet-WiFi<br/>(dense_wifi_topology.py)
     participant HW  as 📻 mac80211_hwsim<br/>(wlan15 monitor)
     participant KS  as 🐾 Kismet WIDS<br/>(localhost:2501)
-    participant BR  as 🌉 kismet_to_elk.py<br/>(Bridge Script)
-    participant WD  as 🛡️ kismet_wips_daemon.py<br/>(WIPS Daemon)
+    participant WD  as 🛡️ kismet_wips_daemon.py<br/>(WIPS Daemon & Bridge)
     participant LS  as ⚙️ Logstash
     participant ES  as 🔎 Elasticsearch
     participant KB  as 📈 Kibana
@@ -84,15 +79,7 @@ sequenceDiagram
     HW->>KS: 802.11 raw frames (Beacon, Probe, Deauth, ...)
     KS->>KS: Phân tích frame → phát hiện<br/>Evil Twin / Rogue AP / Deauth Flood
 
-    Note over KS,BR: Kismet REST API Bridge (mỗi 2 giây)
-    BR->>KS: GET /session/check_session.json (auth)
-    KS-->>BR: 200 OK + session cookie
-    loop Polling mỗi 2 giây
-        BR->>KS: GET /alerts/all_alerts.json
-        KS-->>BR: JSON array of alerts
-        BR->>BR: Lọc alert mới (dedup bằng hash)<br/>Chuẩn hóa schema → JSON event
-        BR->>BR: write_to_elk_log()<br/>/var/log/virtual-wips/wips-alerts.json
-    end
+
 
     Note over KS,WD: Kismet WIPS Daemon (Active Response)
     WD->>KS: GET /session/check_session.json (auth)
@@ -174,9 +161,8 @@ flowchart LR
 flowchart TB
     subgraph HOST["🐧 Kali Linux Host"]
         KISMET_HOST["Kismet Process\n:2501"]
-        WIPS_DAEMON["kismet_wips_daemon.py"]
-        BRIDGE_HOST["kismet_to_elk.py"]
-        LOG_HOST["📁 /var/log/\n├── virtual-wips/wips-alerts.json\n└── kismet/"]
+        WIPS_DAEMON["kismet_wips_daemon.py\n(WIPS & Bridge)"]
+        LOG_HOST["📁 /var/log/\n└── kismet-wips/wips-alerts.json"]
     end
 
     subgraph DOCKER["🐳 Docker Network (ecp-*)"]
@@ -295,7 +281,6 @@ gantt
     Logstash pipeline active               :c4, after c2, 15s
 
     section Bridge/WIPS Daemon
-    kismet_to_elk.py bắt đầu poll         :d1, after b2, 2s
     kismet_wips_daemon.py chạy            :d2, after b2, 2s
     Logstash đọc wips-alerts.json         :d3, after c4, 1s
     Kibana hiển thị dữ liệu đầu tiên      :milestone, d4, after d3, 0s
@@ -311,13 +296,11 @@ gantt
 | `mac80211_hwsim` | Kernel Module | `wlan0`–`wlan15` | Cung cấp 16 card Wi-Fi ảo |
 | `wlan15` | Monitor Interface | CH11 | Bắt mọi frame 802.11 cho Kismet |
 | **Kismet WIDS** | Daemon | `localhost:2501` | Phân tích frame → sinh alert APSPOOF/Deauth/v.v. |
-| `kismet_to_elk.py` | Bridge Script | `src/` | Chuyển tiếp alert Kismet → JSON log chuẩn |
-| `kismet_wips_daemon.py` | Active WIPS Daemon | `src/` | Daemon kết nối API Kismet, chuẩn hóa log và cô lập Rogue AP (IP block & Deauth) |
+| `kismet_wips_daemon.py` | Active WIPS Daemon & Bridge | `src/` | Daemon kết nối API Kismet, chuẩn hóa log và cô lập Rogue AP (IP block & Deauth) |
 | **Logstash** | Docker Container | `ecp-logstash:5044` | Parse + enrich + forward → Elasticsearch |
 | **Elasticsearch** | Docker Container | `ecp-elasticsearch:9200` | Lưu trữ + index WIDS events |
 | **Kibana** | Docker Container | `ecp-kibana:5601` | Dashboard trực quan hóa cảnh báo |
-| `/var/log/virtual-wips/` | Log Dir | Host FS | File trung gian giữa Scripts và Logstash |
-| `/var/log/kismet/` | Log Dir | Host FS | Raw log Kismet |
+| `/var/log/kismet-wips/` | Log Dir | Host FS | File trung gian giữa Scripts và Logstash |
 | TLS Certificates | PKI Volume | Docker `certs` volume | Bảo mật toàn bộ kênh truyền ELK |
 
 ---
@@ -348,7 +331,7 @@ flowchart LR
     ROGUE2 -->|"Beacon / Probe / Deauth\n802.11 frames"| AIR
     AIR -->|"Captured by wlan15\nMonitor Mode"| KS2
     KS2 -->|"REST API\nalerts JSON"| WIPS
-    WIPS -->|"Normalized JSON Events\n/var/log/virtual-wips/wips-alerts.json"| PIPE
+    WIPS -->|"Normalized JSON Events\n/var/log/kismet-wips/wips-alerts.json"| PIPE
     PIPE -->|"HTTPS + TLS\nBulk Index"| IDX
     IDX -->|"Aggregated Results"| DASH
 

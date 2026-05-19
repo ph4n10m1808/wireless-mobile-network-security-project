@@ -3,7 +3,7 @@
 # Script kiểm thử hệ thống WIDS bằng cách mô phỏng các cuộc tấn công thông qua việc tiêm log.
 # Yêu cầu: Quyền root để chạy (ví dụ: sudo ./test_wids_attacks.sh)
 
-LOG_FILE="/var/log/virtual-wips/wips-alerts.json"
+LOG_FILE="/var/log/kismet-wips/wips-alerts.json"
 
 echo "=========================================================="
 echo "    BẮT ĐẦU KIỂM THỬ WIDS (WIRELESS INTRUSION DETECTION)  "

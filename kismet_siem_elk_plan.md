@@ -48,7 +48,7 @@ graph TD
 ## 2. Thiết Kế Tích Hợp ELK Stack Cho Kismet
 
 ### 2.1. Cấu hình Volume Mount trong Docker Compose
-Dữ liệu log được đồng bộ từ Host vào container Logstash thông qua bind mount thư mục chia sẻ `/var/log/virtual-wips/`. Cấu hình dịch vụ `logstash` trong tệp `SIEM/docker-compose.yml` được tối ưu hóa như sau:
+Dữ liệu log được đồng bộ từ Host vào container Logstash thông qua bind mount thư mục chia sẻ `/var/log/kismet-wips/`. Cấu hình dịch vụ `logstash` trong tệp `SIEM/docker-compose.yml` được tối ưu hóa như sau:
 
 ```yaml
   logstash:
@@ -60,7 +60,7 @@ Dữ liệu log được đồng bộ từ Host vào container Logstash thông q
     volumes:
       - ./certs:/usr/share/logstash/config/certs:z
       - ./logstash/pipeline:/usr/share/logstash/pipeline:z
-      - /var/log/virtual-wips:/usr/share/logstash/wids:ro # Mount thư mục log WIPS & Kismet Bridge
+      - /var/log/kismet-wips:/usr/share/logstash/wids:ro # Mount thư mục log WIPS & Kismet Bridge
     ports:
       - "5044:5044"
     restart: always
@@ -74,7 +74,7 @@ Dữ liệu log được đồng bộ từ Host vào container Logstash thông q
 
 ```ruby
 input {
-  # Nhận log từ hệ thống WIDS ảo (đã chuẩn hóa qua kismet_to_elk bridge hoặc kismet_wips_daemon)
+  # Nhận log từ hệ thống WIDS ảo (đã chuẩn hóa qua kismet_wips_daemon)
   file {
     path => "/usr/share/logstash/wids/wips-alerts.json"
     codec => "json"
@@ -159,7 +159,7 @@ sudo ./src/kali_wids_attacks.sh
 | Terminal | Mục tiêu trình diễn | Chi tiết hiển thị |
 | :--- | :--- | :--- |
 | **Terminal 1** (Host) | Bảng điều khiển `run_project.sh` | Show quá trình cấu hình Driver 16 radios, tự động cấu hình bypass NetworkManager, và prompt điều khiển Mininet-WiFi (`mininet-wifi>`). |
-| **Terminal 2** (Host) | Monitor Log Cô lập | Chạy lệnh `tail -f /var/log/virtual-wips/active-response.log` để show thời gian thực WIPS tự động kích hoạt ngăn chặn, block IP/MAC và kích hoạt deauth cách ly. |
+| **Terminal 2** (Host) | Monitor Log Cô lập | Chạy lệnh `tail -f /var/log/kismet-wips/active-response.log` để show thời gian thực WIPS tự động kích hoạt ngăn chặn, block IP/MAC và kích hoạt deauth cách ly. |
 | **Terminal 3** (Host) | Trình tấn công `kali_wids_attacks.sh` | Thực hiện các tùy chọn tấn công trực quan (bắn deauth, beacon flood). |
 | **Trình duyệt Web** | Giao diện Kibana SIEM | Truy cập `https://localhost:5601`, trình diễn Dashboard tương quan an ninh vô tuyến trực quan, biểu đồ timeline nhảy vọt ngay khi bấm tấn công (độ trễ < 3 giây). |
 

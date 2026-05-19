@@ -160,10 +160,7 @@ services:
     volumes:
       - certs:/usr/share/logstash/config/certs
       - ./logstash/pipeline:/usr/share/logstash/pipeline:z
-      - /var/log/virtual-wips:/usr/share/logstash/wids:ro
-      - /var/log/virtual-network:/usr/share/logstash/network:ro
-      - /var/log/kismet:/usr/share/logstash/kismet_raw:ro
-      # - ./sample.log:/usr/share/logstash/sample.log:z
+      - /var/log/kismet-wips:/usr/share/logstash/wids:ro
     ports:
       - "5044:5044"
     restart: always

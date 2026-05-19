@@ -40,10 +40,9 @@ if sudo "$CONDA_PYTHON" -c "import mininet; import mn_wifi; print('[+] mininet &
     echo "   🎉 SUCCESS: Mininet-WiFi is fully configured for Miniconda network env! 🎉"
     echo "=========================================================================="
     echo " You can now run the topology and other scripts directly:"
-    echo "   sudo ./src/dense_wifi_topology.py"
-    echo "   ./src/virtual_wips_detector.py"
-    echo "   ./src/network_event_generator.py"
-    echo "   ./src/wips_elk_containment_simulator.py"
+    echo "   sudo ./run_project.sh"
+    echo "   sudo ./src/kismet_wips_daemon.py"
+    echo "   sudo ./src/kali_wids_attacks.sh"
     echo "=========================================================================="
 else
     echo ""

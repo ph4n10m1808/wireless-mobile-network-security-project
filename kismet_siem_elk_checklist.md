@@ -26,7 +26,7 @@ Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi
 - [x] **2. Triển khai & Tùy biến Hạ tầng SIEM ELK Stack**
   - [x] **2.1. Cấu hình Docker Compose (`docker-compose.yml`)**
     - [x] 2.1.1. Khai báo các thông số môi trường trong file `.env` (phiên bản `9.0.1`, mật khẩu `Vsl@2026`)
-    - [x] 2.1.2. Cấu hình volume mount log cho Logstash để map `/var/log/virtual-wips` từ Host vào Container
+    - [x] 2.1.2. Cấu hình volume mount log cho Logstash để map `/var/log/kismet-wips` từ Host vào Container
     - [x] 2.1.3. Khởi tạo khóa mã hóa Kibana (`ENCRYPTION_KEY`) bằng script `generate_key.sh`
   - [x] **2.2. Cấu hình Pipeline Logstash chuyên biệt**
     - [x] 2.2.1. Thiết lập cấu hình chính `logstash.conf` nhận log WIDS chuẩn hóa (`wips-alerts.json`)
@@ -48,10 +48,10 @@ Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi
   - [x] **3.3. Cấu hình & Chạy Kismet**
     - [x] 3.3.1. Chạy Kismet chỉ định bắt gói trên card monitor ảo (`sudo kismet -c wlan15 --no-sqlite`)
     - [x] 3.3.2. Truy cập giao diện Web UI Kismet tại `http://localhost:2501` để kiểm tra quét sóng ảo thành công
-  - [x] **3.4. Chạy Cầu nối Đồng bộ API (`kismet_wips_daemon.py` / `kismet_to_elk.py`)**
-    - [x] 3.4.1. Tạo file cầu nối Python `src/kismet_to_elk.py` kết nối với REST API của Kismet
+  - [x] **3.4. Chạy WIPS Daemon & Cầu nối API (`kismet_wips_daemon.py`)**
+    - [x] 3.4.1. Tạo file WIPS Daemon Python `src/kismet_wips_daemon.py` kết nối với REST API của Kismet
     - [x] 3.4.2. Cấu hình hàm map trường dữ liệu thô của Kismet sang chuẩn JSON SIEM
-    - [x] 3.4.3. Chạy bridge daemon và xác nhận log chuẩn hóa được ghi vào `/var/log/virtual-wips/wips-alerts.json`
+    - [x] 3.4.3. Chạy daemon và xác nhận log chuẩn hóa được ghi vào `/var/log/kismet-wips/wips-alerts.json`
 
 - [x] **4. Triển khai Bộ Ngăn Chặn Chủ Động (WIPS Active Response)**
   - [x] **4.1. Thiết lập Engine Phòng vệ (`kismet_wips_daemon.py`)**
@@ -61,7 +61,7 @@ Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi
     - [x] 4.2.1. Trích xuất thông tin vi phạm (BSSID của Rogue AP hoặc MAC của Attacker thực hiện deauth flood)
     - [x] 4.2.2. Tự động dùng card mạng `wlan14` bắn gói deauth ngăn chặn kết nối tới Rogue AP
     - [x] 4.2.3. Tự động ghi MAC/IP vi phạm vào file blacklist tường lửa (`simulated_blacklist.txt` trên Host)
-    - [x] 4.2.4. Ghi lại lịch sử hoạt động ngăn chặn vào nhật ký cách ly `/var/log/virtual-wips/active-response.log`
+    - [x] 4.2.4. Ghi lại lịch sử hoạt động ngăn chặn vào nhật ký cách ly `/var/log/kismet-wips/active-response.log`
 
 - [ ] **5. Cấu hình Dashboard & Phân tích Cảnh báo (Kibana SIEM)**
   - [ ] **5.1. Tạo Data Views trên Kibana**

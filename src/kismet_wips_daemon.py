@@ -27,7 +27,7 @@ WIPS_INTERFACE = "wlan14"  # Card mạng ảo dùng để gửi gói deauth cô 
 MONITOR_CHANNEL = 11
 
 # Đường dẫn lưu trữ log tương thích với ELK SIEM
-LOG_DIR = "/var/log/virtual-wips"
+LOG_DIR = "/var/log/kismet-wips"
 WIDS_LOG_FILE = os.path.join(LOG_DIR, "wips-alerts.json")
 ACTIVE_RESPONSE_LOG = os.path.join(LOG_DIR, "active-response.log")
 FIREWALL_BLACKLIST = os.path.join(LOG_DIR, "simulated_blacklist.txt")
