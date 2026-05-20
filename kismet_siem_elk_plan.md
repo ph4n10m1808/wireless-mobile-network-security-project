@@ -36,11 +36,11 @@ graph TD
         ES -->|Truy vấn dữ liệu| KB[Kibana SIEM Dashboard: Port 5601]
     end
 
-    style R fill:#ff9999,stroke:#ff3333,stroke-width:2px;
-    style K fill:#ff99ff,stroke:#cc00cc,stroke-width:2px;
-    style ES fill:#99ccff,stroke:#3366cc,stroke-width:2px;
-    style KB fill:#cc99ff,stroke:#9933ff,stroke-width:2px;
-    style WD fill:#ffcc99,stroke:#ff9933,stroke-width:2px;
+    style R fill:none,stroke:#ff3333,stroke-width:2px;
+    style K fill:none,stroke:#cc00cc,stroke-width:2px;
+    style ES fill:none,stroke:#3366cc,stroke-width:2px;
+    style KB fill:none,stroke:#9933ff,stroke-width:2px;
+    style WD fill:none,stroke:#ff9933,stroke-width:2px;
 ```
 
 ---

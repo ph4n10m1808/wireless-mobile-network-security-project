@@ -28,12 +28,12 @@ Khi tích hợp Kismet, luồng dữ liệu của hệ thống SIEM sẽ thay đ
 ```mermaid
 graph TD
     %% Styling
-    classDef idle fill:#f5f5f5,stroke:#ccc,stroke-dasharray: 5 5,color:#999;
-    classDef active fill:#e8f4fd,stroke:#1890ff,stroke-width:2px;
-    classDef monitor fill:#fce8e6,stroke:#ea4335,stroke-width:2px,font-weight:bold;
-    classDef core fill:#fef7e0,stroke:#fbbc04,stroke-width:2px;
-    classDef wids fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px;
-    classDef siem fill:#e8f5e9,stroke:#4caf50,stroke-width:2px;
+    classDef idle fill:none,stroke:#ccc,stroke-dasharray: 5 5,color:#999;
+    classDef active fill:none,stroke:#1890ff,stroke-width:2px;
+    classDef monitor fill:none,stroke:#ea4335,stroke-width:2px,font-weight:bold;
+    classDef core fill:none,stroke:#fbbc04,stroke-width:2px;
+    classDef wids fill:none,stroke:#9c27b0,stroke-width:2px;
+    classDef siem fill:none,stroke:#4caf50,stroke-width:2px;
 
     subgraph Host ["Máy Vật Lý (Kali Host)"]
         subgraph Driver ["Tầng Vô Tuyến Ảo (Linux Kernel & Simulator)"]

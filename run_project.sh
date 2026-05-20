@@ -115,6 +115,84 @@ stop_siem() {
   cd "$PROJ_DIR" || exit
 }
 
+stop_siem_and_reset() {
+  echo -e "\n${RED}[SIEM] Đang tắt SIEM và XÓA TOÀN BỘ DỮ LIỆU (volumes)...${NC}"
+  detect_docker_compose
+  if [ -z "$DOCKER_COMPOSE" ]; then
+    echo -e "${RED}[!] Không tìm thấy docker compose / docker-compose.${NC}"
+    return 1
+  fi
+
+  cd "$PROJ_DIR/SIEM" || exit
+  echo -e "${YELLOW}[SIEM] Thực thi: $DOCKER_COMPOSE down -v${NC}"
+  $DOCKER_COMPOSE down -v
+  if [ $? -eq 0 ]; then
+    echo -e "${GREEN}[+] Đã tắt SIEM và xóa toàn bộ volumes (elasticsearch_data, kibanadata, certs).${NC}"
+    echo -e "${YELLOW}    → Lần khởi động tiếp theo sẽ tạo lại chứng chỉ TLS và dữ liệu từ đầu.${NC}"
+  else
+    echo -e "${RED}[!] Lỗi xảy ra khi dừng và xóa volumes.${NC}"
+  fi
+  cd "$PROJ_DIR" || exit
+}
+
+purge_siem() {
+  echo -e "\n${RED}══════════════════════════════════════════════════════${NC}"
+  echo -e "${RED}  CẢNH BÁO: Thao tác này sẽ XÓA HOÀN TOÀN SIEM ELK:${NC}"
+  echo -e "${RED}    • Tắt tất cả container ELK${NC}"
+  echo -e "${RED}    • Xóa toàn bộ Docker volumes (dữ liệu ES, Kibana, certs)${NC}"
+  echo -e "${RED}    • Xóa Docker images ELK (Elasticsearch, Kibana, Logstash)${NC}"
+  echo -e "${RED}    • Xóa log WIPS (/var/log/kismet-wips/)${NC}"
+  echo -e "${RED}══════════════════════════════════════════════════════${NC}"
+  echo -e -n "${WHITE}Bạn có chắc chắn muốn tiếp tục? (y/N): ${NC}"
+  read -t 30 confirm
+  confirm=${confirm:-n}
+  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    echo -e "${GREEN}[*] Đã hủy thao tác. Không có gì bị xóa.${NC}"
+    return 0
+  fi
+
+  detect_docker_compose
+  if [ -z "$DOCKER_COMPOSE" ]; then
+    echo -e "${RED}[!] Không tìm thấy docker compose / docker-compose.${NC}"
+    return 1
+  fi
+
+  # Bước 1: Tắt containers + xóa volumes + xóa orphan networks
+  cd "$PROJ_DIR/SIEM" || exit
+  echo -e "${YELLOW}[1/4] Tắt containers và xóa volumes...${NC}"
+  $DOCKER_COMPOSE down -v --remove-orphans
+
+  # Bước 2: Xóa Docker images ELK
+  echo -e "${YELLOW}[2/4] Xóa Docker images ELK...${NC}"
+  # Lấy stack version từ .env
+  local STACK_VER
+  STACK_VER=$(grep '^STACK_VERSION=' "$PROJ_DIR/SIEM/.env" 2>/dev/null | cut -d= -f2)
+  if [ -n "$STACK_VER" ]; then
+    for img in elasticsearch kibana logstash; do
+      local full_img="docker.elastic.co/${img}/${img}:${STACK_VER}"
+      if docker image inspect "$full_img" >/dev/null 2>&1; then
+        echo -e "  ${RED}[-]${NC} Xóa image: $full_img"
+        docker rmi "$full_img" 2>/dev/null || true
+      fi
+    done
+  else
+    echo -e "${YELLOW}  [!] Không tìm thấy STACK_VERSION trong .env — bỏ qua xóa images.${NC}"
+  fi
+
+  # Bước 3: Dọn dẹp Docker build cache liên quan
+  echo -e "${YELLOW}[3/4] Dọn dẹp Docker build cache...${NC}"
+  docker system prune -f --filter "label=com.docker.compose.project=siem" 2>/dev/null || true
+
+  # Bước 4: Xóa log WIPS
+  echo -e "${YELLOW}[4/4] Xóa log WIPS...${NC}"
+  rm -rf /var/log/kismet-wips/*
+  echo -e "  ${GREEN}[+]${NC} Đã xóa /var/log/kismet-wips/*"
+
+  cd "$PROJ_DIR" || exit
+  echo -e "\n${GREEN}[+] Đã xóa hoàn toàn SIEM ELK Stack khỏi hệ thống!${NC}"
+  echo -e "${CYAN}    Để cài đặt lại: sudo ./run_project.sh start --with-siem${NC}"
+}
+
 # ---------------------------------------------------------------------------
 # Chờ Elasticsearch sẵn sàng (tối đa MAX_WAIT giây, poll mỗi 5s)
 # ---------------------------------------------------------------------------
@@ -222,13 +300,16 @@ start_project() {
     for i in {1..45}; do
       if iw dev wlan31 info 2>/dev/null | grep -q "type monitor"; then
         echo -e "\n${GREEN}[Kismet-Trigger] wlan31 ở monitor mode! Đang bật Kismet WIDS...${NC}"
-        # Quét đa kênh (channel hopping) để giám sát toàn bộ AP hợp lệ & rogue AP trên 2 băng tần (2.4G & 5G)
-        # --log-prefix: ghi pcap + .kismet db vào /var/log/kismet-wips/ (bỏ --no-logging)
-        kismet -c wlan31 \
+        # Quét đa kênh (channel hopping) CHỈ trên 8 kênh thực tế của topology
+        # Mặc định Kismet hop 155+ kênh → dwell ~200ms/kênh → bỏ sót hầu hết attack frames
+        # Giới hạn 8 kênh → dwell ~1.6s/kênh → đủ để bắt deauth flood, beacon flood, etc.
+        # Channels: 1,6,11 (2.4G) + 36,40,44,149,153 (5G)
+        # --log-prefix: ghi pcap + .kismet db vào /var/log/kismet-wips/
+        kismet -c 'wlan31:channels="1,6,11,36,40,44,149,153",channel_hoprate=3/sec' \
           --log-prefix /var/log/kismet-wips/ \
           --homedir /home/ph4n10m \
           >/var/log/kismet-wips/kismet.log 2>&1 &
-        echo -e "${GREEN}[Kismet-Trigger] Kismet WIDS đã khởi động ở chế độ quét đa kênh (dual-band hopping). Log: /var/log/kismet-wips/${NC}"
+        echo -e "${GREEN}[Kismet-Trigger] Kismet WIDS đã khởi động — hop 8 kênh topology (1,6,11,36,40,44,149,153) @ 3ch/s. Log: /var/log/kismet-wips/${NC}"
         break
       fi
       sleep 2
@@ -283,10 +364,12 @@ show_interactive_menu() {
     echo -e "  ${WHITE}[4]${NC} Tắt & Dọn dẹp toàn bộ hệ thống (${RED}Cả WIDS/WIPS & SIEM${NC})"
     echo -e "  ${WHITE}[5]${NC} Chỉ khởi động SIEM (Cụm container ELK Stack)"
     echo -e "  ${WHITE}[6]${NC} Chỉ tắt SIEM (Cụm container ELK Stack)"
+    echo -e "  ${WHITE}[7]${NC} Tắt SIEM & Xóa dữ liệu (${RED}Reset volumes — giữ images${NC})"
+    echo -e "  ${WHITE}[8]${NC} Xóa hoàn toàn SIEM (${RED}Volumes + Images + Logs — clean slate${NC})"
     echo -e "  ${WHITE}[0]${NC} Thoát"
     echo -e "${CYAN}===================================================================${NC}"
     
-    echo -e -n "${WHITE}Vui lòng chọn chức năng [0-6]: ${NC}"
+    echo -e -n "${WHITE}Vui lòng chọn chức năng [0-8]: ${NC}"
     read choice
     case $choice in
       1)
@@ -314,6 +397,14 @@ show_interactive_menu() {
         stop_siem
         break
         ;;
+      7)
+        stop_siem_and_reset
+        break
+        ;;
+      8)
+        purge_siem
+        break
+        ;;
       0)
         echo -e "${WHITE}Tạm biệt!${NC}"
         exit 0
@@ -338,12 +429,20 @@ if [ $# -gt 0 ]; then
     stop|off|down)
       ACTION="stop"
       ;;
+    siem-reset)
+      ACTION="siem-reset"
+      ;;
+    siem-purge)
+      ACTION="siem-purge"
+      ;;
     help|-h|--help)
       echo -e "${CYAN}Cách sử dụng:${NC} sudo ./run_project.sh [action] [options]"
       echo -e ""
       echo -e "${YELLOW}Các Action khả dụng:${NC}"
       echo -e "  ${GREEN}start | on | up${NC}       Khởi động hệ thống WIDS/WIPS & Mininet-WiFi"
       echo -e "  ${GREEN}stop | off | down${NC}     Dừng hệ thống & dọn dẹp các tiến trình mạng"
+      echo -e "  ${GREEN}siem-reset${NC}            Tắt SIEM & xóa dữ liệu (reset volumes, giữ images)"
+      echo -e "  ${GREEN}siem-purge${NC}            Xóa hoàn toàn SIEM (volumes + images + logs)"
       echo -e ""
       echo -e "${YELLOW}Các Options khả dụng:${NC}"
       echo -e "  ${GREEN}--with-siem | -s${NC}     Tích hợp thêm bật/tắt cụm SIEM (ELK Stack)"
@@ -353,6 +452,8 @@ if [ $# -gt 0 ]; then
       echo -e "  sudo ./run_project.sh start --with-siem   # Bật đầy đủ cả mạng giả lập và SIEM"
       echo -e "  sudo ./run_project.sh stop                # Chỉ dọn dẹp mạng giả lập"
       echo -e "  sudo ./run_project.sh stop --with-siem    # Tắt sạch cả mạng giả lập và cụm SIEM"
+      echo -e "  sudo ./run_project.sh siem-reset          # Reset SIEM (xóa data, giữ images)"
+      echo -e "  sudo ./run_project.sh siem-purge          # Xóa hoàn toàn SIEM khỏi hệ thống"
       echo -e "  sudo ./run_project.sh                     # Khởi chạy giao diện Menu tương tác"
       exit 0
       ;;
@@ -389,5 +490,9 @@ else
       stop_siem
     fi
     echo -e "${GREEN}[+] Hoàn tất quá trình dừng các tiến trình theo yêu cầu.${NC}"
+  elif [ "$ACTION" = "siem-reset" ]; then
+    stop_siem_and_reset
+  elif [ "$ACTION" = "siem-purge" ]; then
+    purge_siem
   fi
 fi

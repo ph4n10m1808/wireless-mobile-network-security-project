@@ -60,7 +60,7 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant MN  as 🖥️ Mininet-WiFi<br/>(dense_wifi_topology.py)
-    participant HW  as 📻 mac80211_hwsim<br/>(wlan15 monitor)
+    participant HW  as 📻 mac80211_hwsim<br/>(wlan31 monitor)
     participant KS  as 🐾 Kismet WIDS<br/>(localhost:2501)
     participant WD  as 🛡️ kismet_wips_daemon.py<br/>(WIPS Daemon & Bridge)
     participant LS  as ⚙️ Logstash
@@ -334,10 +334,10 @@ flowchart LR
     PIPE -->|"HTTPS + TLS\nBulk Index"| IDX
     IDX -->|"Aggregated Results"| DASH
 
-    style UNTRUSTED fill:#ff4444,color:#fff
-    style DETECTION fill:#ff9900,color:#000
-    style PROCESSING fill:#ffcc00,color:#000
-    style STORAGE fill:#00aa44,color:#fff
+    style UNTRUSTED fill:none,stroke:#ff4444,stroke-width:2px
+    style DETECTION fill:none,stroke:#ff9900,stroke-width:2px
+    style PROCESSING fill:none,stroke:#ffcc00,stroke-width:2px
+    style STORAGE fill:none,stroke:#00aa44,stroke-width:2px
 ```
 
 ---

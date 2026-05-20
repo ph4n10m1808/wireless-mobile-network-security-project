@@ -146,7 +146,7 @@ def block_ip_firewall(ip_address):
         else:
             log_active_response(f"IP {ip_address} đã nằm trong BLACKLIST từ trước. Tiếp tục duy trì cách ly.")
 
-def wireless_deauth_containment(target_bssid, client_mac="FF:FF:FF:FF:FF:FF"):
+def wireless_deauth_containment(target_bssid, channel=None, client_mac="FF:FF:FF:FF:FF:FF"):
     """
     Cơ chế cách ly mức sóng vô tuyến: Gửi gói deauth làm gián đoạn kết nối
     của client với Rogue AP/Evil Twin hoặc phá sóng AP giả mạo.
@@ -160,7 +160,7 @@ def wireless_deauth_containment(target_bssid, client_mac="FF:FF:FF:FF:FF:FF"):
     if norm_bssid in _INVALID_MACS or norm_bssid == "FF:FF:FF:FF:FF:FF":
         log_console("WARN", f"[STORM GUARD] Bỏ qua deauth đến broadcast/null MAC: {target_bssid}")
         return
-
+ 
     # FIX-STORM-02: Kiểm tra cooldown — không deauth lại cùng BSSID trong 60s
     with _deauth_cooldown_lock:
         now = time.time()
@@ -171,23 +171,24 @@ def wireless_deauth_containment(target_bssid, client_mac="FF:FF:FF:FF:FF:FF"):
                                 f"({elapsed:.0f}s/{DEAUTH_COOLDOWN_SECONDS}s). Bỏ qua deauth.")
             return
         _deauth_cooldown[norm_bssid] = now
-
+ 
     if not ENABLE_WIRELESS_CONTAINMENT:
         log_active_response(f"[MÔ PHỎNG] Phát hiện Rogue AP {target_bssid}. "
                             f"Đề xuất gửi gói deauth cách ly qua interface {WIPS_INTERFACE}.")
         return
-
+ 
     # Đăng ký BSSID vào tập đang containment (FIX-STORM-04: tránh self-trigger)
     with _wips_controlled_lock:
         _wips_controlled_bssids.add(norm_bssid)
-
+ 
     # Khởi chạy một tiến trình con thực hiện deauthentication bằng aireplay-ng
     def run_deauth():
         # FIX-STORM-03: Giữ semaphore — tối đa 2 luồng deauth song song
         with _deauth_semaphore:
+            target_channel = channel if channel else MONITOR_CHANNEL
             log_active_response(f"KÍCH HOẠT VÔ TUYẾN CÔ LẬP: Phát deauth flood nhắm vào AP "
-                                f"{target_bssid} trên interface {WIPS_INTERFACE}...")
-
+                                f"{target_bssid} trên kênh {target_channel} bằng interface {WIPS_INTERFACE}...")
+ 
             # Bước 1: Cấu hình card mạng sang monitor mode và đúng channel
             try:
                 subprocess.run(["ip", "link", "set", WIPS_INTERFACE, "down"],
@@ -196,15 +197,15 @@ def wireless_deauth_containment(target_bssid, client_mac="FF:FF:FF:FF:FF:FF"):
                                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 subprocess.run(["ip", "link", "set", WIPS_INTERFACE, "up"],
                                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                subprocess.run(["iw", "dev", WIPS_INTERFACE, "set", "channel", str(MONITOR_CHANNEL)],
+                subprocess.run(["iw", "dev", WIPS_INTERFACE, "set", "channel", str(target_channel)],
                                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except subprocess.SubprocessError as e:
                 log_console("WARN", f"Không thể cấu hình {WIPS_INTERFACE} sang monitor mode: {e}")
-
-            # Bước 2: Gửi gói Deauth cô lập thông qua aireplay-ng
+ 
+            # Bước 2: Gửi gói Deauth cô lập thông qua aireplay-ng với các tùy chọn sửa lỗi kênh ảo (-D và --ignore-negative-one)
             # Gửi 30 gói (giảm từ 60 → 30) để giảm tải kernel driver
             # client_mac luôn là FF:FF:FF:FF:FF:FF (broadcast) là đủ
-            cmd = ["aireplay-ng", "-0", "30", "-a", target_bssid, WIPS_INTERFACE]
+            cmd = ["aireplay-ng", "-0", "30", "-a", target_bssid, "-D", "--ignore-negative-one", WIPS_INTERFACE]
             try:
                 proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 proc.wait(timeout=30)
@@ -251,8 +252,9 @@ def map_kismet_severity(kismet_sev):
 def process_wids_alert(kalert):
     """Xử lý cảnh báo từ Kismet, chuẩn hóa định dạng, và quyết định biện pháp WIPS.
 
-    FIX-STORM-04: Bỏ qua các alert mà nguồn BSSID đang bị WIPS containment
-    (tức là chính gói deauth của ta tạo ra) để chặn vòng lặp phản hồi.
+    FIX-STORM-04 v2: Alerts LUÔN được ghi vào ELK (không bao giờ bị drop).
+    Chỉ bỏ qua phần ACTIVE RESPONSE nếu đó là self-generated alert,
+    để tránh vòng lặp containment tự khuếch đại.
     """
     k_msg = kalert.get("kismet.alert.text", "")
     k_header = kalert.get("kismet.alert.header", "")
@@ -260,17 +262,18 @@ def process_wids_alert(kalert):
     k_mac = kalert.get("kismet.alert.source_mac", "00:00:00:00:00:00")
     k_dest = kalert.get("kismet.alert.dest_mac", "")
 
-    # FIX-STORM-04: Nếu alert là DEAUTHFLOOD/BCASTDISCON và BSSID đang bị containment
-    # → đây chính là gói deauth do WIPS phát ra, bỏ qua để tránh vòng lặp
+    # FIX-STORM-04 v2: Xác định alert có phải do WIPS tự tạo ra không
+    # Nếu đúng → vẫn log nhưng KHÔNG kích hoạt active response
     norm_src = k_mac.upper() if k_mac else ""
     alert_type_raw = k_header.upper()
-    self_generated_types = {"DEAUTHFLOOD", "BCASTDISCON", "DEAUTHFLOOD"}
+    self_generated_types = {"DEAUTHFLOOD", "BCASTDISCON"}
+    is_self_generated = False
     if any(t in alert_type_raw for t in self_generated_types):
         with _wips_controlled_lock:
             if norm_src in _wips_controlled_bssids:
-                log_console("INFO", f"[STORM GUARD] Bỏ qua self-generated alert '{k_header}' "
-                                    f"từ BSSID đang containment: {k_mac}")
-                return
+                is_self_generated = True
+                log_console("INFO", f"[STORM GUARD] Alert '{k_header}' từ BSSID đang containment: "
+                                    f"{k_mac} — vẫn ghi log, bỏ qua active response")
     
     event_type = "unknown_wireless_alert"
     severity = map_kismet_severity(kalert.get("kismet.alert.severity", 5))
@@ -297,6 +300,10 @@ def process_wids_alert(kalert):
     bssid = kalert.get("kismet.alert.bssid", k_mac)
     client_mac = k_dest if k_dest else k_mac
     ssid = kalert.get("kismet.alert.ssid", "Company-WiFi")
+    alert_ch = kalert.get("kismet.alert.channel", MONITOR_CHANNEL)
+
+    # Xác định nguồn gốc alert: WIPS tự tạo hay từ bên ngoài
+    alert_origin = "wips_containment" if is_self_generated else "external"
 
     # Tạo schema sự kiện JSON chuẩn hóa tương thích ELK SIEM
     bridged_event = {
@@ -304,11 +311,12 @@ def process_wids_alert(kalert):
         "source": "kismet-wips-daemon",
         "sensor": "kali-kismet-hybrid-wips",
         "event_type": event_type,
+        "alert_origin": alert_origin,
         "description": f"[Kismet-WIPS Realtime Alert] {k_header}: {k_msg}",
         "ssid": ssid,
         "bssid": bssid,
         "client_mac": client_mac,
-        "channel": kalert.get("kismet.alert.channel", MONITOR_CHANNEL),
+        "channel": alert_ch,
         "encryption": kalert.get("kismet.alert.crypt", "N/A"),
         "authorized": False,
         "severity": severity,
@@ -319,17 +327,22 @@ def process_wids_alert(kalert):
         }
     }
 
-    # Ghi log chuẩn hóa
+    # LUÔN ghi log chuẩn hóa vào ELK (không bao giờ drop)
     write_elk_log(bridged_event)
-    log_console("ALERT", f"Phát hiện mối đe dọa không dây! Kiểu: {event_type} | BSSID: {bssid} | Mức độ: {severity}")
+    log_console("ALERT", f"Phát hiện mối đe dọa không dây! Kiểu: {event_type} | BSSID: {bssid} | "
+                         f"Mức độ: {severity} | Nguồn: {alert_origin}")
 
     # ==========================================
     # CƠ CHẾ CHẶN/PHẢN ỨNG THỰC TẾ CỦA WIPS
+    # (Chỉ kích hoạt nếu KHÔNG phải self-generated)
     # ==========================================
+    if is_self_generated:
+        return
+
     if event_type in ["evil_twin_detected", "rogue_ap_detected"]:
         log_active_response(f"PHÁT HIỆN MỐI ĐE DỌA NGUY CẤP: {event_type.upper()} trên SSID '{ssid}' (BSSID giả mạo: {bssid})!")
         # 1. Kích hoạt chặn mạng không dây (Wireless Deauth Containment)
-        wireless_deauth_containment(bssid)
+        wireless_deauth_containment(bssid, channel=alert_ch)
         # 2. Ghi nhận chặn BSSID này trên tường lửa giả lập
         block_ip_firewall(bssid)
 
@@ -338,7 +351,8 @@ def process_wids_alert(kalert):
         # Thực hiện chặn MAC của kẻ tấn công phát deauth
         block_ip_firewall(bssid)
         # Trả đũa vô tuyến (phản công deauth cắt kết nối của kẻ tấn công nếu cần)
-        wireless_deauth_containment(bssid)
+        wireless_deauth_containment(bssid, channel=alert_ch)
+
 
 # ==========================================
 # VÒNG LẶP ĐIỀU KHIỂN CHÍNH

@@ -80,7 +80,7 @@ services:
       - cluster.initial_master_nodes=ecp-elasticsearch
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - bootstrap.memory_lock=true
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - ES_JAVA_OPTS=-Xms2G -Xmx2G
       - xpack.security.enabled=true
       - xpack.security.http.ssl.enabled=true
       - xpack.security.http.ssl.key=certs/elasticsearch/elasticsearch.key
@@ -95,6 +95,7 @@ services:
       - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.security.transport.ssl.client_authentication=optional
       - xpack.license.self_generated.type=${LICENSE}
+      - xpack.monitoring.collection.enabled=true
     mem_limit: ${MEM_LIMIT}
     ulimits:
       memlock:
@@ -130,7 +131,7 @@ services:
       - SERVER_NAME=ecp-kibana
       - ELASTICSEARCH_HOSTS=https://ecp-elasticsearch:9200
       - ELASTICSEARCH_USERNAME=kibana_system
-      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
       - KIBANA_PASSWORD=${KIBANA_PASSWORD}
       - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
       - SERVER_SSL_ENABLED=true
@@ -151,7 +152,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
-  
+
   logstash:
     depends_on:
       elasticsearch:
@@ -167,20 +168,27 @@ services:
     restart: always
     environment:
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-      - LS_JAVA_OPTS=-Xms512m -Xmx512m
+      - LS_JAVA_OPTS=-Xms1G -Xmx1G
       - queue.type=persisted
       - queue.max_bytes=1gb
-      # BUG-07 FIX: Tắt monitoring để tránh lỗi xác thực trên basic license
-      - xpack.monitoring.enabled=false
+      # Kích hoạt monitoring của Logstash theo yêu cầu của USER
+      - xpack.monitoring.enabled=true
+      - xpack.monitoring.allow_legacy_collection=true
+
+      - xpack.monitoring.elasticsearch.hosts=https://ecp-elasticsearch:9200
+      - xpack.monitoring.elasticsearch.username=elastic
+      - xpack.monitoring.elasticsearch.password=${ELASTIC_PASSWORD}
+      - xpack.monitoring.elasticsearch.ssl.certificate_authority=/usr/share/logstash/config/certs/ca/ca.crt
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "curl -s http://localhost:9600/_node/stats | grep -q '\"status\":\"green\"'",
+          'curl -s http://localhost:9600/_node/stats | grep -q ''"status":"green"''',
         ]
       interval: 15s
       timeout: 10s
       retries: 30
+
 volumes:
   elasticsearch_data:
     driver: local
