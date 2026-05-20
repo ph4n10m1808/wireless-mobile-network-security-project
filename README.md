@@ -131,6 +131,28 @@ Giao diện tấn công xuất hiện, cho phép bạn kích hoạt:
 3. **Beacon Flood (Fake APs)** bằng `mdk4` làm nhiễu danh sách quét sóng của WIDS.
 4. **Amok Mode Deauth** ngắt toàn bộ sóng kênh 11.
 
+### 4. Cấu hình Whitelist bảo vệ trong Kismet (AP Spoofing Whitelist)
+
+Để Kismet WIDS có thể tự động phân biệt được AP hợp lệ và Rogue AP (Evil Twin / SSID Spoofing), danh sách các MAC (BSSID) hợp lệ được cấu hình trong `/etc/kismet/kismet_site.conf` hoặc `/etc/kismet/kismet_alerts.conf` như sau:
+
+```ini
+# =========================================================================
+# Whitelist bảo vệ mạng nội bộ giả lập (Dense Dual-Band Topology)
+# =========================================================================
+
+# 1. SSID "Company-WiFi" (2.4 GHz - AP1, AP3, AP5)
+apspoof=CompanyWiFiRule:ssid="Company-WiFi",validmacs="02:00:00:00:A1:00,02:00:00:00:A2:00,02:00:00:00:A3:00"
+
+# 2. SSID "Company-WiFi-5G" (5 GHz - AP2, AP4, AP6)
+apspoof=CompanyWiFi5GRule:ssid="Company-WiFi-5G",validmacs="02:00:00:00:A1:50,02:00:00:00:A2:50,02:00:00:00:A3:50"
+
+# 3. SSID "Company-Guest" (2.4 GHz - AP7)
+apspoof=CompanyGuestRule:ssid="Company-Guest",validmacs="02:00:00:00:A4:00"
+
+# 4. SSID "Company-Guest-5G" (5 GHz - AP8)
+apspoof=CompanyGuest5GRule:ssid="Company-Guest-5G",validmacs="02:00:00:00:A4:50"
+```
+
 ---
 
 ## 📊 Cấu Hình Dashboard Kibana SIEM

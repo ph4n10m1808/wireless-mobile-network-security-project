@@ -38,42 +38,32 @@ graph TD
     subgraph Host ["Máy Vật Lý (Kali Host)"]
         subgraph Driver ["Tầng Vô Tuyến Ảo (Linux Kernel & Simulator)"]
             HWSIM["mac80211_hwsim<br>(Trình giả lập driver sóng vô tuyến)"]:::core
-            WMED["wmediumd<br>(Mô phỏng môi trường truyền dẫn sóng)"]:::core
-            HWSIM <--> WMED
         end
 
-        subgraph Radios ["8 Card Mạng Không Dây Ảo (radios=8)"]
+        subgraph Radios ["32 Card Mạng Không Dây Ảo (radios=32)"]
             w0["wlan0<br>(Idle)"]:::idle
-            w1["wlan1<br>(Idle)"]:::idle
-            w2["wlan2<br>(Idle)"]:::idle
-            w3["wlan3<br>(Idle)"]:::idle
-            w4["wlan4<br>(Idle)"]:::idle
-            w5["wlan5<br>(Idle)"]:::idle
-            w6["wlan6<br>(Idle)"]:::idle
-            w7["wlan7<br>(Monitor Mode)"]:::monitor
+            w1["wlan1–24<br>(Mininet Nodes)"]:::active
+            w30["wlan30<br>(WIPS Deauth)"]:::monitor
+            w31["wlan31<br>(Kismet Monitor)"]:::monitor
         end
 
         %% Connections to Virtual Air
         w0 <--> HWSIM
         w1 <--> HWSIM
-        w2 <--> HWSIM
-        w3 <--> HWSIM
-        w4 <--> HWSIM
-        w5 <--> HWSIM
-        w6 <--> HWSIM
-        w7 <--> HWSIM
+        w30 <--> HWSIM
+        w31 <--> HWSIM
 
         subgraph MN ["Môi Trường Mininet-WiFi (Chạy dense_wifi_topology.py)"]
-            subgraph Legit ["Mạng Wi-Fi Hợp Lệ"]
-                ap1["ap1-wlan1<br>(SSID: Company-WiFi, CH 1)"]:::active
-                ap2["ap2-wlan1<br>(SSID: Company-WiFi, CH 6)"]:::active
-                ap3["ap3-wlan1<br>(SSID: Company-Guest, CH 11)"]:::active
-                STAs["Các Trạm Client (sta1 - sta8)<br>(Bắn traffic, kết nối AP)"]:::active
+            subgraph Legit ["Mạng Wi-Fi Hợp Lệ (8 APs)"]
+                ap1["ap1/ap3/ap5<br>(SSID: Company-WiFi)"]:::active
+                ap2["ap2/ap4/ap6<br>(SSID: Company-WiFi-5G)"]:::active
+                ap3["ap7/ap8<br>(SSID: Company-Guest)"]:::active
+                STAs["Các Trạm Client (sta1 - sta12)<br>(Bắn traffic, kết nối AP)"]:::active
             end
 
             subgraph Rogue ["Mạng Giả Mạo / Tấn Công"]
-                rap["rogueap-wlan1<br>(SSID: Company-WiFi, CH 11)"]:::monitor
-                atk["Kẻ Tấn Công (aireplay-ng)<br>(Tấn công qua wlan7)"]:::monitor
+                rap["ap9-ap12 (4 Rogue APs)<br>(SSID: Company-WiFi & Guest)"]:::monitor
+                atk["Kẻ Tấn Công (aireplay-ng)<br>(Tấn công qua wlan30)"]:::monitor
             end
 
             ap1 <--> HWSIM
@@ -81,11 +71,11 @@ graph TD
             ap3 <--> HWSIM
             STAs <--> HWSIM
             rap <--> HWSIM
-            atk -.->|Bắn gói tin hủy xác thực| w7
+            atk -.->|Bắn gói tin hủy xác thực| w31
         end
 
         subgraph WIDS ["Hệ Thống Giám Sát & Ngăn Chặn (WIDS/WIPS)"]
-            w7 -->|Đọc gói tin thô 802.11| K["Kismet WIDS Daemon<br>(Cổng 2501, lọc Alert)"]:::wids
+            w31 -->|Đọc gói tin thô 802.11| K["Kismet WIDS Daemon<br>(Cổng 2501, lọc Alert)"]:::wids
             K -->|Cung cấp Alert REST API| KA["/alerts/all_alerts.json"]:::wids
             KA -->|Polling API & Active response| AR["kismet_wips_daemon.py<br>(WIPS Engine & Bridge)"]:::wids
             AR -->|Ghi log chuẩn hóa| L["wips-alerts.json<br>(/var/log/kismet-wips/)"]:::wids
@@ -116,36 +106,63 @@ sudo apt install kismet -y
 ```
 
 ### Bước 3.2: Chuyển Card Mạng Giả Lập sang Monitor Mode
-Trong danh sách 8 card mạng ảo được sinh ra từ driver `mac80211_hwsim`, ta sẽ chọn một interface (ví dụ `wlan7`) không được Mininet-WiFi sử dụng để làm "Ăng-ten giám sát" (WIDS Sensor).
+Trong danh sách 32 card mạng ảo được sinh ra từ driver `mac80211_hwsim`, ta sẽ chọn một interface (ví dụ `wlan31`) không được Mininet-WiFi sử dụng để làm "Ăng-ten giám sát" (WIDS Sensor).
 
-Chạy các lệnh sau để đưa card `wlan7` vào trạng thái giám sát:
+Chạy các lệnh sau để đưa card `wlan31` vào trạng thái giám sát:
 ```bash
 # Tắt interface
-sudo ip link set wlan7 down
+sudo ip link set wlan31 down
 
 # Chuyển đổi chế độ hoạt động sang Monitor mode
-sudo iw dev wlan7 set type monitor
+sudo iw dev wlan31 set type monitor
 
 # Bật lại interface
-sudo ip link set wlan7 up
+sudo ip link set wlan31 up
 
 # Kiểm tra lại trạng thái (đảm bảo hiển thị type monitor)
-iw dev wlan7
+iw dev wlan31
 ```
 
 ### Bước 3.3: Khởi cấu hình Kismet quét trên Card mạng ảo
-Khởi động Kismet daemon và chỉ định nguồn bắt gói tin là card `wlan7` vừa cấu hình:
+Khởi động Kismet daemon và chỉ định nguồn bắt gói tin là card `wlan31` vừa cấu hình:
 ```bash
-sudo kismet -c wlan7 --no-sqlite
+sudo kismet -c wlan31 --log-prefix /var/log/kismet-wips/
 ```
-*Lưu ý:* Tham số `--no-sqlite` giúp Kismet chạy nhẹ hơn trong môi trường Lab ảo hóa bằng cách giảm thiểu ghi đĩa không cần thiết, chỉ tập trung xử lý trong RAM và đẩy ra API.
+*Lưu ý:* Việc dùng cờ `--log-prefix` chỉ định thư mục giúp Kismet tự động ghi các tệp pcapng và sqlite database (`.kismet`) vào thư mục `/var/log/kismet-wips/` phục vụ cho mục đích điều tra số, không làm rác thư mục chạy hiện tại.
+
+### Bước 3.3.B: Cấu hình Whitelist bảo vệ (AP Spoofing Detection)
+Để Kismet WIDS có thể phân biệt chính xác đâu là AP hợp lệ của hệ thống và đâu là Rogue AP (Evil Twin / SSID Spoofing), bạn cần định nghĩa danh sách MAC (BSSID) được phép hoạt động ứng với từng SSID hợp lệ. 
+
+Mở file cấu hình ghi đè của Kismet (khuyến nghị dán vào **`/etc/kismet/kismet_site.conf`** hoặc **`/etc/kismet/kismet_alerts.conf`**):
+```bash
+sudo nano /etc/kismet/kismet_site.conf
+```
+
+Sau đó thêm cấu hình Whitelist an ninh mạng đã được đồng bộ 100% với topology mật độ cao 8 APs của dự án:
+```ini
+# =========================================================================
+# Whitelist bảo vệ mạng nội bộ giả lập (Dense Dual-Band Topology)
+# =========================================================================
+
+# 1. Bảo vệ SSID "Company-WiFi" (2.4 GHz - AP1, AP3, AP5)
+apspoof=CompanyWiFiRule:ssid="Company-WiFi",validmacs="02:00:00:00:A1:00,02:00:00:00:A2:00,02:00:00:00:A3:00"
+
+# 2. Bảo vệ SSID "Company-WiFi-5G" (5 GHz - AP2, AP4, AP6)
+apspoof=CompanyWiFi5GRule:ssid="Company-WiFi-5G",validmacs="02:00:00:00:A1:50,02:00:00:00:A2:50,02:00:00:00:A3:50"
+
+# 3. Bảo vệ SSID "Company-Guest" (2.4 GHz - AP7)
+apspoof=CompanyGuestRule:ssid="Company-Guest",validmacs="02:00:00:00:A4:00"
+
+# 4. Bảo vệ SSID "Company-Guest-5G" (5 GHz - AP8)
+apspoof=CompanyGuest5GRule:ssid="Company-Guest-5G",validmacs="02:00:00:00:A4:50"
+```
 
 ### Bước 3.4: Khởi Chạy WIPS Active Response Daemon [kismet_wips_daemon.py](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/src/kismet_wips_daemon.py)
 Khởi chạy daemon WIPS an ninh mạng mà chúng tôi đã xây dựng sẵn cho bạn tại thư mục `src/`:
 ```bash
 sudo python3 src/kismet_wips_daemon.py
 ```
-Script này hoạt động như một daemon liên tục giám sát Kismet API (mặc định tại cổng `2501`), tự động ghi nhận log chuẩn hóa vào `/var/log/kismet-wips/wips-alerts.json` bất cứ khi nào Kismet phát hiện mối đe dọa không dây thực tế, đồng thời gửi gói tin deauthentication cách ly vô tuyến qua card `wlan14`.
+Script này hoạt động như một daemon liên tục giám sát Kismet API (mặc định tại cổng `2501`), tự động ghi nhận log chuẩn hóa vào `/var/log/kismet-wips/wips-alerts.json` bất cứ khi nào Kismet phát hiện mối đe dọa không dây thực tế, đồng thời gửi gói tin deauthentication cách ly vô tuyến qua card `wlan30`.
 
 ---
 
@@ -158,18 +175,18 @@ Script này hoạt động như một daemon liên tục giám sát Kismet API (
 1. **Tấn công Deauthentication Flood**:
    Mở một terminal mới trên Kali Host, sử dụng công cụ `aireplay-ng` bắn các gói tin hủy xác thực giả mạo vào các Client ảo của Mininet-WiFi:
    ```bash
-   # Gửi deauth flood liên tục tới client ảo sta1 qua card monitor wlan7
-   sudo aireplay-ng -0 100 -a 00:00:00:00:01:00 -c DE:AD:BE:EF:00:01 wlan7
+   # Gửi deauth flood liên tục tới client ảo sta1 qua card monitor wlan30
+   sudo aireplay-ng -0 100 -a 02:00:00:00:A1:00 -c 02:00:00:00:01:00 wlan30
    ```
-   *Kismet sẽ lập tức bắt được các khung hình Deauth này và phát ra cảnh báo `DEAUTH_FLOOD`.*
+   *Kismet sẽ lập tức bắt được các khung hình Deauth này trên wlan31 và phát ra cảnh báo `DEAUTH_FLOOD`.*
 
 2. **Tấn công Rogue AP / Evil Twin**:
-   Khi bạn chạy file `dense_wifi_topology.py`, Mininet-WiFi tự động khởi chạy node `rogueap` phát SSID `Company-WiFi` nhưng dùng mã hóa open trái phép. 
-   *Kismet khi quét qua kênh 11 sẽ phát hiện AP này trùng SSID với AP1/AP2 hợp lệ nhưng sai cấu hình bảo mật/BSSID và lập tức kích hoạt cảnh báo loại `ROGUE_AP`.*
+   Khi bạn chạy file `dense_wifi_topology.py`, Mininet-WiFi tự động khởi chạy các node rogue AP `ap9-ap12` phát SSID `Company-WiFi` và `Company-Guest` không mã hóa. 
+   *Kismet khi quét qua các kênh tương ứng sẽ phát hiện các AP này trùng SSID với AP hợp lệ nhưng sai cấu hình bảo mật/BSSID và lập tức kích hoạt cảnh báo loại `ROGUE_AP` / `SSID_SPOOFING`.*
 
 ---
 
 ## 🎯 Đánh Giá và Lời Khuyên Cho Lần Bảo Vệ Đồ Án
 * **Báo cáo và Demo Thực Tế (Khuyên dùng)**: Khi thuyết trình trước Hội đồng, hãy tự tin trình bày hệ thống tích hợp Kismet WIDS/WIPS thật.
-  * Việc tích hợp **Kismet WIDS thật** bắt gói tin qua card `wlan15` chế độ monitor và xử lý qua **WIPS Daemon (`kismet_wips_daemon.py`)** để ngăn chặn bằng deauth thực tế mang lại tính thực tiễn và chuyên nghiệp cực kỳ cao.
+  * Việc tích hợp **Kismet WIDS thật** bắt gói tin qua card `wlan31` chế độ monitor và xử lý qua **WIPS Daemon (`kismet_wips_daemon.py`)** để ngăn chặn bằng deauth thực tế qua card `wlan30` mang lại tính thực tiễn và chuyên nghiệp cực kỳ cao.
   * Nhấn mạnh với Hội đồng rằng hệ thống của bạn đã vượt qua giai đoạn mô phỏng log đơn thuần (`virtual_wips_detector.py` cũ) để tiến tới một hệ thống phát hiện và phản ứng an ninh không dây thời gian thực có thể triển khai trực tiếp ngoài thực tế. Điều này sẽ giúp bạn đạt điểm số tuyệt đối thuyết phục từ Hội đồng chấm thi!

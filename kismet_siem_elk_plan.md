@@ -110,6 +110,27 @@ output {
 }
 ```
 
+### 2.3. Cấu hình Whitelist bảo vệ trong Kismet (AP Spoofing Detection)
+Để Kismet WIDS có thể tự động phân biệt được AP hợp lệ và Rogue AP (Evil Twin / SSID Spoofing), danh sách các MAC (BSSID) hợp lệ được cấu hình trong `/etc/kismet/kismet_site.conf` như sau:
+
+```ini
+# =========================================================================
+# Whitelist bảo vệ mạng nội bộ giả lập (Dense Dual-Band Topology)
+# =========================================================================
+
+# 1. Bảo vệ SSID "Company-WiFi" (2.4 GHz - AP1, AP3, AP5)
+apspoof=CompanyWiFiRule:ssid="Company-WiFi",validmacs="02:00:00:00:A1:00,02:00:00:00:A2:00,02:00:00:00:A3:00"
+
+# 2. Bảo vệ SSID "Company-WiFi-5G" (5 GHz - AP2, AP4, AP6)
+apspoof=CompanyWiFi5GRule:ssid="Company-WiFi-5G",validmacs="02:00:00:00:A1:50,02:00:00:00:A2:50,02:00:00:00:A3:50"
+
+# 3. Bảo vệ SSID "Company-Guest" (2.4 GHz - AP7)
+apspoof=CompanyGuestRule:ssid="Company-Guest",validmacs="02:00:00:00:A4:00"
+
+# 4. Bảo vệ SSID "Company-Guest-5G" (5 GHz - AP8)
+apspoof=CompanyGuest5GRule:ssid="Company-Guest-5G",validmacs="02:00:00:00:A4:50"
+```
+
 ---
 
 ## 3. Quy Trình Thực Nghiệm Từng Bước

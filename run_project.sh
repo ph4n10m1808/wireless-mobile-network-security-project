@@ -222,14 +222,13 @@ start_project() {
     for i in {1..45}; do
       if iw dev wlan31 info 2>/dev/null | grep -q "type monitor"; then
         echo -e "\n${GREEN}[Kismet-Trigger] wlan31 ở monitor mode! Đang bật Kismet WIDS...${NC}"
-        # hop=false,channel=11 — lock channel để tránh bắt gói deauth từ channel khác
+        # Quét đa kênh (channel hopping) để giám sát toàn bộ AP hợp lệ & rogue AP trên 2 băng tần (2.4G & 5G)
         # --log-prefix: ghi pcap + .kismet db vào /var/log/kismet-wips/ (bỏ --no-logging)
         kismet -c wlan31 \
-          --no-sqlite \
-          --log-prefix /var/log/kismet-wips/Kismet \
+          --log-prefix /var/log/kismet-wips/ \
           --homedir /home/ph4n10m \
           >/var/log/kismet-wips/kismet.log 2>&1 &
-        echo -e "${GREEN}[Kismet-Trigger] Kismet WIDS đã khởi động (CH 11, no-hop). Log: /var/log/kismet-wips/${NC}"
+        echo -e "${GREEN}[Kismet-Trigger] Kismet WIDS đã khởi động ở chế độ quét đa kênh (dual-band hopping). Log: /var/log/kismet-wips/${NC}"
         break
       fi
       sleep 2

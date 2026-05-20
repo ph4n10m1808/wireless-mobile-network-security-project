@@ -46,8 +46,9 @@ Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi
     - [x] 3.2.2. Chuyển card `wlan31` sang Monitor mode (`sudo ip link set wlan31 down && sudo iw dev wlan31 set type monitor && sudo ip link set wlan31 up`)
     - [x] 3.2.3. Kiểm tra lại trạng thái monitor mode bằng lệnh `iw dev wlan31`
   - [x] **3.3. Cấu hình & Chạy Kismet**
-    - [x] 3.3.1. Chạy Kismet chỉ định bắt gói trên card monitor ảo (`sudo kismet -c wlan31 --no-sqlite`)
+    - [x] 3.3.1. Chạy Kismet chỉ định bắt gói trên card monitor ảo (`sudo kismet -c wlan31 --log-prefix /var/log/kismet-wips/`)
     - [x] 3.3.2. Truy cập giao diện Web UI Kismet tại `http://localhost:2501` để kiểm tra quét sóng ảo thành công
+    - [x] 3.3.3. Cấu hình whitelist bảo vệ AP Spoofing (8 BSSID hợp lệ) trong `/etc/kismet/kismet_site.conf`
   - [x] **3.4. Chạy WIPS Daemon & Cầu nối API (`kismet_wips_daemon.py`)**
     - [x] 3.4.1. Tạo file WIPS Daemon Python `src/kismet_wips_daemon.py` kết nối với REST API của Kismet
     - [x] 3.4.2. Cấu hình hàm map trường dữ liệu thô của Kismet sang chuẩn JSON SIEM
