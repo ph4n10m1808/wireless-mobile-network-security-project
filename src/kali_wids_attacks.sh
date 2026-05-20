@@ -20,6 +20,15 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+# BUG-10 FIX: Kiểm tra công cụ bắt buộc trước khi chạy
+for tool in aireplay-ng mdk4 iw ip; do
+  if ! command -v "$tool" &>/dev/null; then
+    echo "[!] Công cụ '$tool' chưa được cài đặt. Vui lòng cài đặt trước!"
+    echo "    Gợi ý: sudo apt install aircrack-ng mdk4 iw iproute2"
+    exit 1
+  fi
+done
+
 echo "=========================================================="
 echo "   KỊCH BẢN TẤN CÔNG THỰC TẾ TRÊN KALI (AIRCRACK-NG/MDK4) "
 echo "=========================================================="

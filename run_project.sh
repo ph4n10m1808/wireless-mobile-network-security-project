@@ -79,7 +79,7 @@ start_siem() {
   if [ $? -eq 0 ]; then
     echo -e "${GREEN}[+] Đã khởi động cụm SIEM thành công!${NC}"
     echo -e "      => Dashboard Kibana: ${CYAN}https://localhost:5601${NC}"
-    echo -e "      => Thông tin đăng nhập: ${YELLOW}elastic / Vsl@2026${NC}"
+    echo -e "      => Thông tin đăng nhập: ${YELLOW}elastic / (xem SIEM/.env để biết mật khẩu)${NC}"
   else
     echo -e "${RED}[!] Lỗi khi khởi động các container ELK Stack!${NC}"
   fi
@@ -104,76 +104,148 @@ stop_siem() {
   cd "$PROJ_DIR" || exit
 }
 
+# ---------------------------------------------------------------------------
+# Chờ Elasticsearch sẵn sàng (tối đa MAX_WAIT giây, poll mỗi 5s)
+# ---------------------------------------------------------------------------
+wait_for_siem_ready() {
+  local max_wait=180
+  local elapsed=0
+  local es_url="https://localhost:9200"
+  local cred="elastic"
+  local pass
+  pass=$(grep '^ELASTIC_PASSWORD=' "$PROJ_DIR/SIEM/.env" | cut -d= -f2)
+
+  echo -e "${BLUE}[SIEM] Đang chờ Elasticsearch sẵn sàng (tối đa ${max_wait}s)...${NC}"
+  while [ $elapsed -lt $max_wait ]; do
+    if curl -sk -u "${cred}:${pass}" "${es_url}/_cluster/health" \
+         | grep -qE '"status":"(green|yellow)"'; then
+      echo -e "${GREEN}[SIEM] ✔ Elasticsearch đã sẵn sàng nhận log! (${elapsed}s)${NC}"
+      return 0
+    fi
+    sleep 5
+    elapsed=$((elapsed + 5))
+    echo -e "${YELLOW}[SIEM] ... chờ Elasticsearch (${elapsed}/${max_wait}s)${NC}"
+  done
+
+  echo -e "${RED}[SIEM] ✘ Elasticsearch chưa sẵn sàng sau ${max_wait}s — tiếp tục nhưng log có thể bị mất.${NC}"
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# Chờ WIPS daemon ghi được ít nhất 1 dòng log
+# ---------------------------------------------------------------------------
+wait_for_wips_ready() {
+  local daemon_log="/var/log/kismet-wips/kismet_wips_daemon.log"
+  local max_wait=30
+  local elapsed=0
+
+  echo -e "${BLUE}[WIPS] Đang chờ WIPS Daemon khởi động...${NC}"
+  while [ $elapsed -lt $max_wait ]; do
+    if [ -s "$daemon_log" ]; then
+      echo -e "${GREEN}[WIPS] ✔ WIPS Daemon đang chạy và ghi log! (${elapsed}s)${NC}"
+      return 0
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  echo -e "${YELLOW}[WIPS] ⚠ WIPS Daemon chưa ghi log sau ${max_wait}s — kiểm tra ${daemon_log}.${NC}"
+  return 1
+}
+
 start_project() {
   local with_siem=$1
 
   echo -e "\n${CYAN}===================================================================${NC}"
-  echo -e "${GREEN}      BẮT ĐẦU KHỞI CHẠY HỆ THỐNG MÔ PHỎNG WIDS/WIPS & MININET-WIFI   ${NC}"
+  echo -e "${GREEN}   BẮT ĐẦU KHỞI CHẠY HỆ THỐNG MÔ PHỎNG WIDS/WIPS & MININET-WIFI${NC}"
   echo -e "${CYAN}===================================================================${NC}"
 
-  # 1. Dọn dẹp môi trường cũ trước khi start
-  echo -e "${YELLOW}[1/4] Dọn dẹp môi trường mạng và tiến trình cũ...${NC}"
+  # ── Bước 1: Dọn dẹp môi trường cũ ────────────────────────────────────────
+  echo -e "\n${YELLOW}[1/5] Dọn dẹp môi trường mạng và tiến trình cũ...${NC}"
   cleanup_processes
 
-  # 1.5. Khởi động SIEM nếu được chỉ định
+  # ── Bước 2: Khởi động SONG SONG — SIEM + WIPS Daemon ─────────────────────
+  echo -e "\n${YELLOW}[2/5] Khởi động SONG SONG: SIEM (ELK) & WIPS Daemon thu thập log...${NC}"
+
+  # 2a. Khởi động SIEM (docker compose up -d — chạy ngầm ngay)
   if [ "$with_siem" = "true" ]; then
+    echo -e "${BLUE}  [→] Đang phát lệnh khởi động ELK Stack (nền)...${NC}"
     start_siem
   fi
 
-  # 2. Khởi chạy Kismet WIPS Daemon ngầm
-  echo -e "${YELLOW}[2/4] Khởi động Kismet WIPS Daemon (chạy ngầm)...${NC}"
-  $PYTHON_BIN src/kismet_wips_daemon.py > /var/log/kismet-wips/kismet_wips_daemon.log 2>&1 &
+  # 2b. Khởi động WIPS Daemon ngầm (song song với ELK đang spin-up)
+  echo -e "${BLUE}  [→] Đang khởi động Kismet WIPS Daemon (nền)...${NC}"
+  # Nạp biến môi trường Kismet từ .env
+  export $(grep -v '^#' "$PROJ_DIR/.env" | grep -E '^KISMET_' | xargs) 2>/dev/null || true
+  $PYTHON_BIN src/kismet_wips_daemon.py \
+    > /var/log/kismet-wips/kismet_wips_daemon.log 2>&1 &
   WIPS_PID=$!
-  echo -e "      => Log WIPS Daemon: ${CYAN}/var/log/kismet-wips/kismet_wips_daemon.log${NC}"
-  echo -e "      => Log cảnh báo WIPS JSON : ${CYAN}/var/log/kismet-wips/wips-alerts.json${NC}"
+  echo -e "${GREEN}  [+] WIPS Daemon PID=$WIPS_PID${NC}"
+  echo -e "      └─ Log daemon : ${CYAN}/var/log/kismet-wips/kismet_wips_daemon.log${NC}"
+  echo -e "      └─ Alerts JSON: ${CYAN}/var/log/kismet-wips/wips-alerts.json${NC}"
 
-  # 3. Kịch bản chờ tự động bật Kismet WIDS
-  echo -e "${YELLOW}[3/4] Kích hoạt trigger tự động bật Kismet WIDS...${NC}"
+  # ── Bước 3: Chờ cả hai sẵn sàng trước khi tiếp tục ──────────────────────
+  echo -e "\n${YELLOW}[3/5] Xác nhận hạ tầng thu thập log sẵn sàng...${NC}"
+
+  # 3a. Chờ WIPS daemon ghi log (nhanh, ~vài giây)
+  wait_for_wips_ready
+
+  # 3b. Chờ Elasticsearch healthy (chậm hơn, chạy song song bên trên)
+  if [ "$with_siem" = "true" ]; then
+    wait_for_siem_ready
+    echo -e "${GREEN}  [+] Pipeline thu thập: WIPS Daemon → Logstash → Elasticsearch đã thông!${NC}"
+  fi
+
+  # ── Bước 4: Kích hoạt Kismet WIDS khi topology sẵn sàng ──────────────────
+  echo -e "\n${YELLOW}[4/5] Đăng ký trigger tự động bật Kismet WIDS...${NC}"
   (
-    # Chờ giao diện wlan15 xuất hiện (do topology tạo ra)
-    for i in {1..30}; do
-      if ip link show wlan15 >/dev/null 2>&1; then
-        echo -e "\n${GREEN}[Background] Phát hiện wlan15! Đang bật Kismet WIDS...${NC}"
-        kismet -c wlan15 --no-sqlite --homedir /home/ph4n10m >/var/log/kismet-wips/kismet.log 2>&1 &
+    # Chờ wlan15 vào đúng monitor mode (setup_monitor_wlan15 phải xong)
+    for i in {1..45}; do
+      if iw dev wlan15 info 2>/dev/null | grep -q "type monitor"; then
+        echo -e "\n${GREEN}[Kismet-Trigger] wlan15 ở monitor mode! Đang bật Kismet WIDS...${NC}"
+        kismet -c wlan15 --no-sqlite --homedir /home/ph4n10m \
+          >/var/log/kismet-wips/kismet.log 2>&1 &
+        echo -e "${GREEN}[Kismet-Trigger] Kismet WIDS đã khởi động. Log: /var/log/kismet-wips/kismet.log${NC}"
         break
       fi
       sleep 2
     done
   ) &
+  KISMET_TRIGGER_PID=$!
 
-  # 4. Khởi chạy Mininet-WiFi Topology
-  echo -e "${YELLOW}[4/4] Khởi động Mininet-WiFi Topology (Foreground)...${NC}"
+  # ── Bước 5: Khởi chạy Mininet-WiFi Topology (Foreground) ─────────────────
+  echo -e "\n${YELLOW}[5/5] Khởi động Mininet-WiFi Topology (Foreground)...${NC}"
   echo -e "${CYAN}-------------------------------------------------------------------${NC}"
   echo -e "${WHITE}[*] Đang khởi tạo topo mạng ảo. Vui lòng đợi trong giây lát...${NC}"
   echo -e "${WHITE}[*] Khi xuất hiện prompt ${GREEN}'mininet-wifi>'${WHITE}, hệ thống đã sẵn sàng!${NC}"
-  echo -e "      - Mở terminal khác thực hiện giả lập tấn công: ${GREEN}sudo ./src/kali_wids_attacks.sh${NC}"
-  echo -e "      - Theo dõi Kismet Web UI tại: ${GREEN}http://localhost:2501${NC}"
+  echo -e "  • Tấn công giả lập: ${GREEN}sudo ./src/kali_wids_attacks.sh${NC}"
+  echo -e "  • Kismet Web UI   : ${GREEN}http://localhost:2501${NC}"
   if [ "$with_siem" = "true" ]; then
-    echo -e "      - Giao diện Kibana SIEM Dashboard: ${CYAN}https://localhost:5601${NC}"
+    echo -e "  • Kibana Dashboard: ${CYAN}https://localhost:5601${NC}"
   fi
-  echo -e "      - Nhập ${RED}'exit'${NC} tại console 'mininet-wifi>' để dừng hệ thống."
+  echo -e "  • Gõ ${RED}'exit'${NC} tại console 'mininet-wifi>' để dừng hệ thống."
   echo -e "${CYAN}-------------------------------------------------------------------${NC}"
 
-  # Chạy foreground để lấy shell điều khiển
   $PYTHON_BIN src/dense_wifi_topology.py
 
-  # Dọn dẹp sau khi thoát
+  # ── Dọn dẹp sau khi thoát ────────────────────────────────────────────────
   echo -e "\n${CYAN}===================================================================${NC}"
   echo -e "${YELLOW}[*] Đang dọn dẹp các dịch vụ ngầm...${NC}"
-  kill $WIPS_PID >/dev/null 2>&1
+  kill $WIPS_PID 2>/dev/null || true
+  kill $KISMET_TRIGGER_PID 2>/dev/null || true
   cleanup_processes
 
   if [ "$with_siem" = "true" ]; then
-    echo -e -n "${YELLOW}[SIEM] Bạn có muốn tắt cụm SIEM (ELK Stack) ngay lúc này không? (y/n) [Mặc định: y]: ${NC}"
+    echo -e -n "${YELLOW}[SIEM] Tắt cụm SIEM (ELK Stack) ngay bây giờ không? (y/n) [Mặc định: y]: ${NC}"
     read -t 15 stop_siem_choice
     stop_siem_choice=${stop_siem_choice:-y}
     if [[ "$stop_siem_choice" =~ ^[Yy]$ ]]; then
       stop_siem
     else
-      echo -e "${GREEN}[*] Giữ cụm SIEM chạy trong nền. Tắt thủ công bằng: sudo ./run_project.sh stop --with-siem${NC}"
+      echo -e "${GREEN}[*] Giữ SIEM chạy nền. Tắt thủ công: sudo ./run_project.sh stop --with-siem${NC}"
     fi
   fi
-  echo -e "${GREEN}[+] Hoàn tất dọn dẹp. Cảm ơn bạn đã sử dụng hệ thống!${NC}"
+  echo -e "${GREEN}[+] Hoàn tất. Cảm ơn bạn đã sử dụng hệ thống!${NC}"
   echo -e "${CYAN}===================================================================${NC}"
 }
 

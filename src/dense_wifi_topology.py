@@ -92,20 +92,27 @@ def patch_cleanup():
     Điều này xóa sạch wlan15 khiến Kismet mất interface.
     Hàm này vô hiệu hóa hành vi đó bằng cách monkey-patch Cleanup.kill_mod
     để bỏ qua riêng module mac80211_hwsim.
+
+    BUG-04 FIX: Dùng hasattr(__func__) để tránh AttributeError khi kill_mod
+    không phải classmethod trên các phiên bản mn_wifi khác nhau.
     """
     try:
         from mn_wifi.clean import Cleanup
-        _orig_kill_mod = Cleanup.kill_mod.__func__  # lấy unbound classmethod
+        orig = Cleanup.kill_mod
+        # An toàn cho cả classmethod lẫn staticmethod / regular method
+        _orig_fn = orig.__func__ if hasattr(orig, '__func__') else orig
 
         @classmethod
         def _patched_kill_mod(cls, module):
             if module == 'mac80211_hwsim':
                 info("[+] Bỏ qua rmmod mac80211_hwsim (đã vá) — wlan15 được giữ nguyên\n")
                 return
-            _orig_kill_mod(cls, module)
+            _orig_fn(cls, module)
 
         Cleanup.kill_mod = _patched_kill_mod
         info("[+] Đã vô hiệu hóa việc gỡ mac80211_hwsim khi thoát\n")
+    except AttributeError as e:
+        info(f"[!] Không thể vá hàm unload (AttributeError - kiểm tra phiên bản mn_wifi): {e}\n")
     except Exception as e:
         info(f"[!] Không thể vá hàm unload: {e}\n")
 

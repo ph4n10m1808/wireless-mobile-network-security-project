@@ -17,6 +17,7 @@ import time
 import requests
 import subprocess
 import threading
+from collections import deque
 from datetime import datetime, timezone, timedelta
 
 # ==========================================
@@ -32,10 +33,10 @@ WIDS_LOG_FILE = os.path.join(LOG_DIR, "wips-alerts.json")
 ACTIVE_RESPONSE_LOG = os.path.join(LOG_DIR, "active-response.log")
 FIREWALL_BLACKLIST = os.path.join(LOG_DIR, "simulated_blacklist.txt")
 
-# Thông tin xác thực Kismet API
-KISMET_HOST = "http://localhost:2501"
-KISMET_USER = "ph4n10m"
-KISMET_PASS = "ph4n10m@18082004"
+# Thông tin xác thực Kismet API (đọc từ biến môi trường để tránh lộ thông tin)
+KISMET_HOST = os.environ.get("KISMET_HOST", "http://localhost:2501")
+KISMET_USER = os.environ.get("KISMET_USER", "ph4n10m")
+KISMET_PASS = os.environ.get("KISMET_PASS", "")
 
 # Quyền hạn thực thi cách ly không dây thực tế (True/False)
 ENABLE_WIRELESS_CONTAINMENT = True
@@ -92,7 +93,10 @@ def log_active_response(action_msg):
 
 def block_ip_firewall(ip_address):
     """Cơ chế cách ly mức mạng: Ghi nhận IP vi phạm vào danh sách đen tường lửa"""
+    # BUG-02 FIX: Tách logic ghi file (cần lock) khỏi log_active_response (cũng cần lock)
+    # để tránh deadlock do reentrant lock acquisition.
     already_blocked = False
+    write_failed = False
     with file_lock:
         if os.path.exists(FIREWALL_BLACKLIST):
             try:
@@ -101,14 +105,19 @@ def block_ip_firewall(ip_address):
                         already_blocked = True
             except IOError:
                 pass
-                
+
         if not already_blocked:
             try:
                 with open(FIREWALL_BLACKLIST, "a") as f:
                     f.write(f"[{format_log_time()}] [CONTAINMENT - BLOCK IP] -> {ip_address}\n")
-                log_active_response(f"Đã đưa IP {ip_address} vào FIREWALL BLACKLIST. Ngăn chặn truy cập mạng LAN thành công!")
             except IOError as e:
                 log_console("WARN", f"Không thể ghi vào file Blacklist: {e}")
+                write_failed = True
+
+    # Gọi log_active_response SAU KHI giải phóng file_lock để tránh deadlock
+    if not write_failed:
+        if not already_blocked:
+            log_active_response(f"Đã đưa IP {ip_address} vào FIREWALL BLACKLIST. Ngăn chặn truy cập mạng LAN thành công!")
         else:
             log_active_response(f"IP {ip_address} đã nằm trong BLACKLIST từ trước. Tiếp tục duy trì cách ly.")
 
@@ -285,29 +294,53 @@ def start_wips():
     except Exception as e:
         log_console("WARN", f"Không thể kết nối khởi tạo session với Kismet: {e}")
 
+    # BUG-01 FIX: Dùng deque ring-buffer (tối đa 5000 phần tử) thay vì set tăng vô hạn.
+    # Tra cứu O(1) qua processed_set; deque tự động loại phần tử cũ khi đầy.
+    MAX_PROCESSED = 5000
+    processed_deque = deque(maxlen=MAX_PROCESSED)
+    processed_set = set()
+
     # Bỏ qua các cảnh báo cũ
-    processed_alerts = set()
     try:
         response = session.get(f"{KISMET_HOST}/alerts/all_alerts.json", timeout=5)
         if response.status_code == 200:
             alerts = response.json()
             for al in alerts:
-                processed_alerts.add(al.get("kismet.alert.hash"))
-            log_console("INFO", f"Đã bỏ qua {len(processed_alerts)} cảnh báo cũ tồn tại trong Kismet database.")
+                h = al.get("kismet.alert.hash")
+                if h is not None:
+                    if len(processed_deque) == MAX_PROCESSED:
+                        evicted = processed_deque[0]  # sắp bị loại ra
+                        processed_set.discard(evicted)
+                    processed_deque.append(h)
+                    processed_set.add(h)
+            log_console("INFO", f"Đã bỏ qua {len(processed_set)} cảnh báo cũ tồn tại trong Kismet database.")
     except Exception as e:
         log_console("WARN", f"Mất kết nối tới Kismet server ban đầu: {e}. Vui lòng đảm bảo Kismet daemon đang chạy.")
 
     # Vòng lặp giám sát liên tục
+    # BUG-11 FIX: Exponential backoff khi mất kết nối (tránh spam log)
+    retry_delay = 5
+    MAX_RETRY_DELAY = 60
+
     while True:
         try:
             response = session.get(f"{KISMET_HOST}/alerts/all_alerts.json", timeout=5)
+            retry_delay = 5  # reset backoff khi kết nối thành công
             if response.status_code == 200:
                 alerts = response.json()
                 for al in alerts:
+                    # BUG-03 FIX: Bỏ qua hash None để tránh chặn tất cả alert không có hash
                     a_hash = al.get("kismet.alert.hash")
-                    if a_hash not in processed_alerts:
+                    if a_hash is None:
+                        process_wids_alert(al)  # luôn xử lý alert không có hash
+                        continue
+                    if a_hash not in processed_set:
                         process_wids_alert(al)
-                        processed_alerts.add(a_hash)
+                        if len(processed_deque) == MAX_PROCESSED:
+                            evicted = processed_deque[0]
+                            processed_set.discard(evicted)
+                        processed_deque.append(a_hash)
+                        processed_set.add(a_hash)
             elif response.status_code == 401:
                 log_console("WARN", "API Kismet báo lỗi xác thực (401). Đang thử đăng nhập lại...")
                 try:
@@ -316,13 +349,15 @@ def start_wips():
                     pass
                 time.sleep(10)
         except requests.exceptions.ConnectionError:
-            log_console("WARN", "Mất kết nối tới Kismet API Server. Đang thử lại sau 5 giây...")
-            time.sleep(5)
+            log_console("WARN", f"Mất kết nối tới Kismet API Server. Thử lại sau {retry_delay}s...")
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)  # exponential backoff
+            continue
         except Exception as e:
             log_console("WARN", f"Lỗi không xác định trong vòng lặp giám sát: {e}")
             time.sleep(2)
-        
-        time.sleep(2.0) # Quét API định kỳ 2 giây/lần
+
+        time.sleep(2.0)  # Quét API định kỳ 2 giây/lần
 
 if __name__ == "__main__":
     try:

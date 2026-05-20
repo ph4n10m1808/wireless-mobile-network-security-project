@@ -169,6 +169,17 @@ services:
       - LS_JAVA_OPTS=-Xms1g -Xmx1g
       - queue.type=persisted
       - queue.max_bytes=1gb
+      # BUG-07 FIX: Tắt monitoring để tránh lỗi xác thực trên basic license
+      - xpack.monitoring.enabled=false
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s http://localhost:9600/_node/stats | grep -q '\"status\":\"green\"'",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 30
 volumes:
   elasticsearch_data:
     driver: local
