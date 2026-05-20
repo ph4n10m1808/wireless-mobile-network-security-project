@@ -19,12 +19,15 @@ import subprocess
 import threading
 from collections import deque
 from datetime import datetime, timezone, timedelta
+from functools import lru_cache
 
 # ==========================================
 # CẤU HÌNH HỆ THỐNG WIPS
 # ==========================================
 # Giao diện mạng giám sát/tấn công ảo
-WIPS_INTERFACE = "wlan14"  # Card mạng ảo dùng để gửi gói deauth cô lập
+# wlan30: Host giữ được sau khi Mininet chiếm wlan1–wlan21 (21 nodes)
+# wlan31: Kismet monitor (sử dụng bởi run_project.sh)
+WIPS_INTERFACE = "wlan30"  # Card mạng ảo dùng để gửi gói deauth cô lập
 MONITOR_CHANNEL = 11
 
 # Đường dẫn lưu trữ log tương thích với ELK SIEM
@@ -55,6 +58,28 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 # Khóa ghi file đồng thời
 file_lock = threading.Lock()
+
+# ==========================================
+# BẢO VỆ CHỐNG VÒNG LẶP DEAUTH STORM
+# ==========================================
+# Semaphore: tối đa 2 luồng deauth chạy song song (tránh kernel overload)
+_deauth_semaphore = threading.Semaphore(2)
+
+# Cooldown tracker: không deauth lại cùng BSSID trong DEAUTH_COOLDOWN_SECONDS giây
+_deauth_cooldown: dict = {}
+_deauth_cooldown_lock = threading.Lock()
+DEAUTH_COOLDOWN_SECONDS = 60
+
+# Tập hợp các BSSID đang bị WIPS containment (tránh xử lý alert từ chính mình)
+_wips_controlled_bssids: set = set()
+_wips_controlled_lock = threading.Lock()
+
+# Broadcast/null MAC không hợp lệ để gửi deauth đến
+_INVALID_MACS = frozenset({
+    "FF:FF:FF:FF:FF:FF",
+    "00:00:00:00:00:00",
+    "ff:ff:ff:ff:ff:ff",
+})
 
 def get_vietnam_time():
     tz = timezone(timedelta(hours=7)) # UTC+7
@@ -125,42 +150,79 @@ def wireless_deauth_containment(target_bssid, client_mac="FF:FF:FF:FF:FF:FF"):
     """
     Cơ chế cách ly mức sóng vô tuyến: Gửi gói deauth làm gián đoạn kết nối
     của client với Rogue AP/Evil Twin hoặc phá sóng AP giả mạo.
+
+    FIX-STORM-01: Lọc broadcast/null MAC để tránh deauth vô nghĩa và vòng lặp.
+    FIX-STORM-02: Cooldown 60s/BSSID để chặn deauth storm tự khuếch đại.
+    FIX-STORM-03: Semaphore giới hạn tối đa 2 luồng aireplay-ng song song.
     """
-    if not ENABLE_WIRELESS_CONTAINMENT:
-        log_active_response(f"[MÔ PHỎNG] Phát hiện Rogue AP {target_bssid}. Đề xuất gửi gói deauth cách ly qua interface {WIPS_INTERFACE}.")
+    # FIX-STORM-01: Bỏ qua nếu BSSID là địa chỉ broadcast/null (không hợp lệ)
+    norm_bssid = target_bssid.upper()
+    if norm_bssid in _INVALID_MACS or norm_bssid == "FF:FF:FF:FF:FF:FF":
+        log_console("WARN", f"[STORM GUARD] Bỏ qua deauth đến broadcast/null MAC: {target_bssid}")
         return
+
+    # FIX-STORM-02: Kiểm tra cooldown — không deauth lại cùng BSSID trong 60s
+    with _deauth_cooldown_lock:
+        now = time.time()
+        last_time = _deauth_cooldown.get(norm_bssid, 0)
+        elapsed = now - last_time
+        if elapsed < DEAUTH_COOLDOWN_SECONDS:
+            log_console("INFO", f"[STORM GUARD] Cooldown active cho {target_bssid} "
+                                f"({elapsed:.0f}s/{DEAUTH_COOLDOWN_SECONDS}s). Bỏ qua deauth.")
+            return
+        _deauth_cooldown[norm_bssid] = now
+
+    if not ENABLE_WIRELESS_CONTAINMENT:
+        log_active_response(f"[MÔ PHỎNG] Phát hiện Rogue AP {target_bssid}. "
+                            f"Đề xuất gửi gói deauth cách ly qua interface {WIPS_INTERFACE}.")
+        return
+
+    # Đăng ký BSSID vào tập đang containment (FIX-STORM-04: tránh self-trigger)
+    with _wips_controlled_lock:
+        _wips_controlled_bssids.add(norm_bssid)
 
     # Khởi chạy một tiến trình con thực hiện deauthentication bằng aireplay-ng
     def run_deauth():
-        log_active_response(f"KÍCH HOẠT VÔ TUYẾN CÔ LẬP: Phát deauth flood nhắm vào AP {target_bssid} trên interface {WIPS_INTERFACE}...")
-        
-        # Bước 1: Cấu hình card mạng sang monitor mode và đúng channel
-        try:
-            subprocess.run(["ip", "link", "set", WIPS_INTERFACE, "down"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["iw", "dev", WIPS_INTERFACE, "set", "type", "monitor"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["ip", "link", "set", WIPS_INTERFACE, "up"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["iw", "dev", WIPS_INTERFACE, "set", "channel", str(MONITOR_CHANNEL)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except subprocess.SubprocessError as e:
-            log_console("WARN", f"Không thể cấu hình interface {WIPS_INTERFACE} sang monitor mode: {e}")
-            # Tiếp tục chạy lệnh aireplay-ng vì có thể interface đã ở monitor mode sẵn
+        # FIX-STORM-03: Giữ semaphore — tối đa 2 luồng deauth song song
+        with _deauth_semaphore:
+            log_active_response(f"KÍCH HOẠT VÔ TUYẾN CÔ LẬP: Phát deauth flood nhắm vào AP "
+                                f"{target_bssid} trên interface {WIPS_INTERFACE}...")
 
-        # Bước 2: Gửi gói Deauth cô lập thông qua aireplay-ng
-        # Gửi 60 gói deauth để ngắt kết nối client và ngăn kết hợp lại
-        cmd = ["aireplay-ng", "-0", "60", "-a", target_bssid, "-c", client_mac, WIPS_INTERFACE]
-        try:
-            # Chạy ngầm trong nền tránh block daemon chính
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            proc.wait(timeout=30)
-            log_active_response(f"HOÀN TẤT CÔ LẬP VÔ TUYẾN: Đã gửi thành công đợt deauth flood ngắt kết nối Rogue AP BSSID: {target_bssid}.")
-        except subprocess.TimeoutExpired:
-            proc.terminate()
-            log_console("WARN", "Tiến trình gửi deauth bị quá thời gian (timeout 30s) và đã bị hủy.")
-        except Exception as e:
-            log_active_response(f"Thực thi deauth thất bại: {e}. Vui lòng kiểm tra quyền sudo và công cụ aireplay-ng.")
+            # Bước 1: Cấu hình card mạng sang monitor mode và đúng channel
+            try:
+                subprocess.run(["ip", "link", "set", WIPS_INTERFACE, "down"],
+                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(["iw", "dev", WIPS_INTERFACE, "set", "type", "monitor"],
+                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(["ip", "link", "set", WIPS_INTERFACE, "up"],
+                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(["iw", "dev", WIPS_INTERFACE, "set", "channel", str(MONITOR_CHANNEL)],
+                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except subprocess.SubprocessError as e:
+                log_console("WARN", f"Không thể cấu hình {WIPS_INTERFACE} sang monitor mode: {e}")
+
+            # Bước 2: Gửi gói Deauth cô lập thông qua aireplay-ng
+            # Gửi 30 gói (giảm từ 60 → 30) để giảm tải kernel driver
+            # client_mac luôn là FF:FF:FF:FF:FF:FF (broadcast) là đủ
+            cmd = ["aireplay-ng", "-0", "30", "-a", target_bssid, WIPS_INTERFACE]
+            try:
+                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                proc.wait(timeout=30)
+                log_active_response(f"HOÀN TẤT CÔ LẬP VÔ TUYẾN: Đã gửi thành công đợt deauth "
+                                    f"flood ngắt kết nối Rogue AP BSSID: {target_bssid}.")
+            except subprocess.TimeoutExpired:
+                proc.terminate()
+                log_console("WARN", "Tiến trình gửi deauth bị quá thời gian (timeout 30s) và đã bị hủy.")
+            except Exception as e:
+                log_active_response(f"Thực thi deauth thất bại: {e}. "
+                                    f"Kiểm tra quyền sudo và công cụ aireplay-ng.")
+            finally:
+                # Giải phóng BSSID khỏi tập containment sau khi hoàn tất
+                with _wips_controlled_lock:
+                    _wips_controlled_bssids.discard(norm_bssid)
 
     # Chạy trên một luồng riêng biệt để tránh làm chậm vòng lặp chính của WIPS
-    t = threading.Thread(target=run_deauth)
-    t.daemon = True
+    t = threading.Thread(target=run_deauth, name=f"deauth-{norm_bssid[-5:]}", daemon=True)
     t.start()
 
 # ==========================================
@@ -187,12 +249,28 @@ def map_kismet_severity(kismet_sev):
         return "medium"
 
 def process_wids_alert(kalert):
-    """Xử lý cảnh báo từ Kismet, chuẩn hóa định dạng, và quyết định biện pháp WIPS"""
+    """Xử lý cảnh báo từ Kismet, chuẩn hóa định dạng, và quyết định biện pháp WIPS.
+
+    FIX-STORM-04: Bỏ qua các alert mà nguồn BSSID đang bị WIPS containment
+    (tức là chính gói deauth của ta tạo ra) để chặn vòng lặp phản hồi.
+    """
     k_msg = kalert.get("kismet.alert.text", "")
     k_header = kalert.get("kismet.alert.header", "")
     k_class = kalert.get("kismet.alert.class", "")
     k_mac = kalert.get("kismet.alert.source_mac", "00:00:00:00:00:00")
     k_dest = kalert.get("kismet.alert.dest_mac", "")
+
+    # FIX-STORM-04: Nếu alert là DEAUTHFLOOD/BCASTDISCON và BSSID đang bị containment
+    # → đây chính là gói deauth do WIPS phát ra, bỏ qua để tránh vòng lặp
+    norm_src = k_mac.upper() if k_mac else ""
+    alert_type_raw = k_header.upper()
+    self_generated_types = {"DEAUTHFLOOD", "BCASTDISCON", "DEAUTHFLOOD"}
+    if any(t in alert_type_raw for t in self_generated_types):
+        with _wips_controlled_lock:
+            if norm_src in _wips_controlled_bssids:
+                log_console("INFO", f"[STORM GUARD] Bỏ qua self-generated alert '{k_header}' "
+                                    f"từ BSSID đang containment: {k_mac}")
+                return
     
     event_type = "unknown_wireless_alert"
     severity = map_kismet_severity(kalert.get("kismet.alert.severity", 5))

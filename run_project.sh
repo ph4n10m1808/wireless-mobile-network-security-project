@@ -47,14 +47,25 @@ cleanup_processes() {
   killall -9 kismet >/dev/null 2>&1
   killall -9 mdk4 aireplay-ng >/dev/null 2>&1
   pkill -f kismet_wips_daemon.py >/dev/null 2>&1
-  
+
+  # Biện pháp chống timing-race: Reset wlan30/wlan31 về managed mode ngay sau khi kill kismet.
+  # Topology mới (21 nodes) chiếm wlan1–wlan21; host giữ wlan22–wlan32.
+  # wlan30 = WIPS deauth, wlan31 = Kismet monitor.
+  for iface in wlan30 wlan31; do
+    if ip link show "$iface" >/dev/null 2>&1; then
+      ip link set "$iface" down 2>/dev/null || true
+      iw dev "$iface" set type managed 2>/dev/null || true
+      ip link set "$iface" up 2>/dev/null || true
+    fi
+  done
+
   # Dọn dẹp Mininet-WiFi
   mn -c >/dev/null 2>&1
-  
+
   # Xóa/Làm rỗng log alerts để chuẩn bị cho lượt chạy mới
   > /var/log/kismet-wips/wips-alerts.json 2>/dev/null || true
   chmod 777 /var/log/kismet-wips/wips-alerts.json 2>/dev/null || true
-  
+
   echo -e "${GREEN}[+] Đã dọn dẹp sạch sẽ tiến trình cũ.${NC}"
 }
 
@@ -73,7 +84,7 @@ start_siem() {
     return 1
   fi
 
-  echo -e "${BLUE}[SIEM] Thực thi: $DOCKER_COMPOSE up -d${NC}"
+  echo -e "${BLUE}[SIEM] Thực thi: $DOCKER_COMPOSE up --build -d${NC}"
   $DOCKER_COMPOSE up -d
   
   if [ $? -eq 0 ]; then
@@ -199,13 +210,26 @@ start_project() {
   # ── Bước 4: Kích hoạt Kismet WIDS khi topology sẵn sàng ──────────────────
   echo -e "\n${YELLOW}[4/5] Đăng ký trigger tự động bật Kismet WIDS...${NC}"
   (
-    # Chờ wlan15 vào đúng monitor mode (setup_monitor_wlan15 phải xong)
+    # FIX TIMING-RACE: Chờ tối thiểu 25 giây trước khi bắt đầu kiểm tra wlan31.
+    # Mục đích: đảm bảo dense_wifi_topology.py đã kịp chạy reload_hwsim()
+    # và đưa tất cả wlan* về managed mode trước khi trigger bắt đầu poll.
+    # Nếu không có bước chờ này, wlan31 có thể vẫn mang trạng thái monitor
+    # từ lần chạy trước (cleanup chưa kịp reset) và trigger sẽ khởi động
+    # Kismet QUÁ SỚM — khiến Kismet mất interface khi reload_hwsim() chạy.
+    echo -e "${BLUE}[Kismet-Trigger] Chờ 25s cho Mininet-WiFi khởi động và reload_hwsim()...${NC}"
+    sleep 25
+    # Chờ wlan31 vào đúng monitor mode (setup_monitor_interface phải xong)
     for i in {1..45}; do
-      if iw dev wlan15 info 2>/dev/null | grep -q "type monitor"; then
-        echo -e "\n${GREEN}[Kismet-Trigger] wlan15 ở monitor mode! Đang bật Kismet WIDS...${NC}"
-        kismet -c wlan15 --no-sqlite --homedir /home/ph4n10m \
+      if iw dev wlan31 info 2>/dev/null | grep -q "type monitor"; then
+        echo -e "\n${GREEN}[Kismet-Trigger] wlan31 ở monitor mode! Đang bật Kismet WIDS...${NC}"
+        # hop=false,channel=11 — lock channel để tránh bắt gói deauth từ channel khác
+        # --log-prefix: ghi pcap + .kismet db vào /var/log/kismet-wips/ (bỏ --no-logging)
+        kismet -c wlan31 \
+          --no-sqlite \
+          --log-prefix /var/log/kismet-wips/Kismet \
+          --homedir /home/ph4n10m \
           >/var/log/kismet-wips/kismet.log 2>&1 &
-        echo -e "${GREEN}[Kismet-Trigger] Kismet WIDS đã khởi động. Log: /var/log/kismet-wips/kismet.log${NC}"
+        echo -e "${GREEN}[Kismet-Trigger] Kismet WIDS đã khởi động (CH 11, no-hop). Log: /var/log/kismet-wips/${NC}"
         break
       fi
       sleep 2

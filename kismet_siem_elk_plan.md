@@ -11,13 +11,13 @@ Kiến trúc hệ thống được thiết kế để Kismet WIDS trực tiếp 
 ```mermaid
 graph TD
     subgraph "Môi trường Wi-Fi ảo (Mininet-WiFi)"
-        A1[Legit AP1 & AP2 & AP3] -->|Sóng Wi-Fi ảo 802.11| S[Stations sta1-sta8]
-        R[Rogue AP / Evil Twin] -.->|Phát sóng trùng kênh 11| S
+        A1[Legit AP1 - AP8] -->|Sóng Wi-Fi ảo 802.11| S[Stations sta1-sta12]
+        R[4 Rogue APs / Evil Twin & Guest Spoof] -.->|Phát sóng trùng kênh 11/36/1/153| S
         AT[Kẻ tấn công: kali_wids_attacks.sh] -.->|Bắn deauth flood thực| S
     end
 
     subgraph "Giám sát Vô tuyến & Phân tích (Kismet WIDS)"
-        W[Card monitor ảo: wlan15] -->|Bắt gói tin raw 802.11| K[Kismet WIDS Daemon: Port 2501]
+        W[Card monitor ảo: wlan31] -->|Bắt gói tin raw 802.11| K[Kismet WIDS Daemon: Port 2501]
         K -->|Alert Engine| KA[Kismet REST API /alerts/all_alerts.json]
     end
 
@@ -25,7 +25,7 @@ graph TD
         WD[Active WIPS: kismet_wips_daemon.py] -->|Query API & Sync| KA
         WD -->|Ghi log JSON chuẩn hóa| M[wips-alerts.json]
         WD -->|Ghi log cách ly| AR[active-response.log]
-        WD -.->|Gửi gói Deauth cô lập via wlan14| S
+        WD -.->|Gửi gói Deauth cô lập via wlan30| S
         WD -.->|Block IP/MAC vi phạm| BL[simulated_blacklist.txt]
     end
 
@@ -121,11 +121,11 @@ sudo ./run_project.sh
 ```
 * **Chọn Menu `[2]`**: Hệ thống sẽ tự động thực hiện:
   1. Khởi động cụm SIEM Docker (Elasticsearch, Logstash, Kibana) ngầm.
-  2. Nạp driver `mac80211_hwsim` cấu hình **16 radios ảo** (wlan0 đến wlan15).
+  2. Nạp driver `mac80211_hwsim` cấu hình **32 radios ảo** (wlan0 đến wlan32).
   3. Cấu hình NetworkManager để bỏ qua toàn bộ card mạng ảo `wlan*`, tránh Kernel Panic.
   4. Khởi chạy topo mạng Mininet-WiFi (`dense_wifi_topology.py`).
-  5. Đưa card `wlan15` sang chế độ **Monitor Mode** khóa kênh 11.
-  6. Khởi động ngầm **Kismet WIDS** lắng nghe trên card `wlan15`.
+  5. Đưa card `wlan31` sang chế độ **Monitor Mode** khóa kênh 11.
+  6. Khởi động ngầm **Kismet WIDS** lắng nghe trên card `wlan31`.
   7. Khởi chạy ngầm **Active WIPS Daemon** (`kismet_wips_daemon.py`) để bắt đầu poll API.
 
 ### Bước 2: Thực Hiện Kịch Bản Tấn Công Để Kích Hoạt WIDS
@@ -136,7 +136,7 @@ sudo ./src/kali_wids_attacks.sh
 
 #### 🛡️ Kịch bản 1: Tấn công Deauthentication Flood (Phát hiện và Cô lập)
 * Trên menu của `kali_wids_attacks.sh`, chọn **`1`** (Deauth Attack) hoặc **`4`** (Amok Deauth).
-* Script sẽ sử dụng `aireplay-ng` qua card chuyên dụng `wlan14` gửi hàng loạt deauth frame.
+* Script sẽ sử dụng `aireplay-ng` qua card chuyên dụng `wlan30` gửi hàng loạt deauth frame.
 * **Quy trình xử lý tự động**:
   1. Kismet phát hiện mật độ Deauth bất thường $\rightarrow$ Sinh cảnh báo qua REST API.
   2. `kismet_wips_daemon.py` poll được cảnh báo $\rightarrow$ Tạo sự kiện JSON lưu vào `wips-alerts.json`.
@@ -144,10 +144,10 @@ sudo ./src/kali_wids_attacks.sh
   4. Đồng thời, `kismet_wips_daemon.py` phát hiện cuộc tấn công Deauth $\rightarrow$ Tự động trích xuất MAC kẻ tấn công đưa vào tường lửa chặn (`simulated_blacklist.txt`) và ghi nhật ký chặn vào `active-response.log`.
 
 #### 🛡️ Kịch bản 2: Tấn công Evil Twin / Rogue AP
-* Khi Mininet-WiFi khởi chạy, node `rogueap` tự động phát sóng SSID `Company-WiFi` nhưng dùng mã hóa Open trên kênh 11.
+* Khi Mininet-WiFi khởi chạy, các node rogueAP `ap9-ap12` tự động phát sóng giả mạo SSID `Company-WiFi` và `Company-Guest` không mã hóa.
 * **Quy trình xử lý tự động**:
-  1. Kismet quét qua kênh 11, phát hiện AP giả mạo trùng SSID nhưng sai BSSID và cấu hình bảo mật $\rightarrow$ Sinh alert `SSID_SPOOFING` / `ROGUE_AP`.
-  2. `kismet_wips_daemon.py` ghi nhận sự kiện $\rightarrow$ Tự động kích hoạt **Wireless Deauth Containment**: dùng `aireplay-ng` qua card `wlan14` liên tục bắn gói deauth vào AP giả mạo này để ngăn cản client ảo `sta*` kết nối vào nó.
+  1. Kismet quét qua kênh 11/36, phát hiện AP giả mạo trùng SSID nhưng sai BSSID và cấu hình bảo mật $\rightarrow$ Sinh alert `SSID_SPOOFING` / `ROGUE_AP`.
+  2. `kismet_wips_daemon.py` ghi nhận sự kiện $\rightarrow$ Tự động kích hoạt **Wireless Deauth Containment**: dùng `aireplay-ng` qua card `wlan30` liên tục bắn gói deauth vào AP giả mạo này để ngăn cản client ảo `sta*` kết nối vào nó.
   3. Ghi log cô lập vào `active-response.log` và chuyển tiếp thông tin an ninh lên Kibana Dashboard.
 
 ---
@@ -164,6 +164,6 @@ sudo ./src/kali_wids_attacks.sh
 | **Trình duyệt Web** | Giao diện Kibana SIEM | Truy cập `https://localhost:5601`, trình diễn Dashboard tương quan an ninh vô tuyến trực quan, biểu đồ timeline nhảy vọt ngay khi bấm tấn công (độ trễ < 3 giây). |
 
 ### 💡 Các lập luận "đắt giá" bảo vệ đề tài:
-1. **Khắc phục triệt để hạn chế tài nguyên**: Sử dụng driver `mac80211_hwsim` với 16 radios giúp cách ly hoàn toàn môi trường mạng thật của Host (`wlan0`) với môi trường Mininet-WiFi (`wlan0-11`) và các card an ninh (`wlan14-15`), đảm bảo lab chạy cực kỳ ổn định không bị mất mạng hay treo đơ máy.
+1. **Khắc phục triệt để hạn chế tài nguyên**: Sử dụng driver `mac80211_hwsim` với 32 radios giúp cách ly hoàn toàn môi trường mạng thật của Host (`wlan0`) với môi trường Mininet-WiFi (`wlan1-24`) và các card an ninh (`wlan30-31`), đảm bảo lab chạy cực kỳ ổn định không bị mất mạng hay treo đơ máy.
 2. **Kỹ thuật sniffer lai thực tế (Hybrid Emulation)**: Hệ thống sử dụng công cụ WIDS tiêu chuẩn **Kismet** thực thụ để bắt và phân tích frame thô 802.11 ảo, chứng minh khả năng làm chủ công nghệ WIDS/WIPS cấp độ doanh nghiệp.
-3. **Quy trình WIPS khép kín và tự động**: WIPS daemon không chỉ cảnh báo mà còn chủ động phản ứng bằng cơ chế phản kích vô tuyến (Deauth Containment qua `wlan14`) và ngăn chặn mạng (Blacklist), giải quyết trọn vẹn bài toán phản ứng phòng vệ vô tuyến.
+3. **Quy trình WIPS khép kín và tự động**: WIPS daemon không chỉ cảnh báo mà còn chủ động phản ứng bằng cơ chế phản kích vô tuyến (Deauth Containment qua `wlan30`) và ngăn chặn mạng (Blacklist), giải quyết trọn vẹn bài toán phản ứng phòng vệ vô tuyến.

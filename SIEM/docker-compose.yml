@@ -80,7 +80,7 @@ services:
       - cluster.initial_master_nodes=ecp-elasticsearch
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - bootstrap.memory_lock=true
-      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
       - xpack.security.enabled=true
       - xpack.security.http.ssl.enabled=true
       - xpack.security.http.ssl.key=certs/elasticsearch/elasticsearch.key
@@ -131,6 +131,7 @@ services:
       - ELASTICSEARCH_HOSTS=https://ecp-elasticsearch:9200
       - ELASTICSEARCH_USERNAME=kibana_system
       - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD}
       - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
       - SERVER_SSL_ENABLED=true
       - SERVER_SSL_CERTIFICATE=config/certs/kibana/kibana.crt
@@ -166,7 +167,7 @@ services:
     restart: always
     environment:
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-      - LS_JAVA_OPTS=-Xms1g -Xmx1g
+      - LS_JAVA_OPTS=-Xms512m -Xmx512m
       - queue.type=persisted
       - queue.max_bytes=1gb
       # BUG-07 FIX: Tắt monitoring để tránh lỗi xác thực trên basic license

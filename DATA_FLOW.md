@@ -12,19 +12,19 @@
 flowchart TB
     subgraph VIRTUAL_NET["🖥️ Tầng Mạng Ảo (Mininet-WiFi + mac80211_hwsim)"]
         direction LR
-        AP1["📡 ap1\nCompany-WiFi\nCH1 · BSSID: 02:00:00:00:1c:00\n✅ HỢP LỆ"]
-        AP2["📡 ap2\nCompany-WiFi\nCH6 · BSSID: 02:00:00:00:1d:00\n✅ HỢP LỆ"]
-        AP3["📡 ap3\nCompany-Guest\nCH11 · BSSID: 02:00:00:00:1e:00\n✅ HỢP LỆ"]
-        ROGUE["⚠️ ap4 (Rogue AP)\nCompany-WiFi\nCH11 · BSSID: 02:00:00:00:1f:00\n🔴 Evil Twin · Open Encryption"]
-        STA["📱 sta1–sta8\n8 Wireless Clients\n10.0.0.1/8 – 10.0.0.8/8"]
+        AP1["📡 ap1/ap3/ap5\nCompany-WiFi\nCH1/6/11 · legit BSSIDs\n✅ HỢP LỆ"]
+        AP2["📡 ap2/ap4/ap6\nCompany-WiFi-5G\nCH36/40/44 · legit BSSIDs\n✅ HỢP LỆ"]
+        AP3["📡 ap7/ap8\nCompany-Guest & 5G\nCH6/149 · legit BSSIDs\n✅ HỢP LỆ"]
+        ROGUE["⚠️ ap9–ap12 (4 Rogue APs)\nCompany-WiFi & Guest\n2.4G/5G · Open Encryption\n🔴 Evil Twin & Guest Spoof"]
+        STA["📱 sta1–sta12\n12 Wireless Clients\n10.0.1.1/8 – 10.0.3.4/8"]
         STA -->|liên kết Wi-Fi| AP1 & AP2 & AP3
         STA -.->|bị dụ kết nối| ROGUE
     end
 
     subgraph SENSORS["🔍 Tầng Cảm biến (Sensor Layer)"]
         direction TB
-        WLAN7["🛰️ wlan15\nMonitor Mode · CH11\nHost Physical Interface"]
-        KISMET["🐾 Kismet WIDS\nlocalhost:2501\nsudo kismet -c wlan15"]
+        WLAN7["🛰️ wlan31\nMonitor Mode · CH11\nHost Physical Interface"]
+        KISMET["🐾 Kismet WIDS\nlocalhost:2501\nsudo kismet -c wlan31"]
         WLAN7 -->|"Packet Capture\n802.11 raw frames"| KISMET
         VIRTUAL_NET -.->|"virtual radio frames\n(mac80211_hwsim)"| WLAN7
     end
@@ -68,11 +68,11 @@ sequenceDiagram
     participant KB  as 📈 Kibana
 
     Note over MN,HW: Khởi động hạ tầng ảo hóa
-    MN->>HW: modprobe mac80211_hwsim radios=16
-    MN->>MN: Tạo ap1, ap2, ap3, rogueap (ap4)
-    MN->>MN: Tạo sta1–sta8
-    MN->>HW: iw dev wlan15 set type monitor
-    MN->>HW: iw dev wlan15 set channel 11
+    MN->>HW: modprobe mac80211_hwsim radios=32
+    MN->>MN: Tạo 8 AP hợp lệ, 4 Rogue AP (ap9-ap12)
+    MN->>MN: Tạo sta1–sta12
+    MN->>HW: iw dev wlan31 set type monitor
+    MN->>HW: iw dev wlan31 set channel 11
 
     Note over HW,KS: Bắt gói tin không dây
     HW->>KS: 802.11 raw frames (Beacon, Probe, Deauth, ...)
@@ -90,7 +90,7 @@ sequenceDiagram
         WD->>WD: Ghi log wips-alerts.json & active-response.log
         alt Phát hiện Rogue AP / Evil Twin / Deauth Flood
             WD->>WD: block_ip_firewall() -> simulated_blacklist.txt
-            WD->>MN: wireless_deauth_containment() via wlan14
+            WD->>MN: wireless_deauth_containment() via wlan30
         end
     end
 
@@ -113,9 +113,9 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     subgraph ATTACK["🔴 Tình huống tấn công"]
-        A1["Evil Twin\nap4 phát sóng Company-WiFi\ntrên CH11 không mã hóa"]
+        A1["Evil Twin\nap9/ap10 phát Company-WiFi\ntrên CH11/36 không mã hóa"]
         A2["Deauth Flood\nGửi frame deauth\nhàng loạt tới clients"]
-        A3["Rogue AP\nAP trái phép phát\nSSID nội bộ"]
+        A3["Rogue AP\nAP trái phép phát\nSSID nội bộ / guest"]
         A4["Auth Brute Force\nThử auth thất bại\n> 10 lần / 5 phút"]
         A5["Unknown Client\nThiết bị lạ kết nối\nvào SSID nội bộ"]
     end
@@ -265,12 +265,12 @@ gantt
     axisFormat  %M:%S
 
     section Hạ tầng ảo
-    modprobe mac80211_hwsim radios=8      :a1, 00:00, 5s
+    modprobe mac80211_hwsim radios=32      :a1, 00:00, 5s
     Mininet-WiFi build topology            :a2, after a1, 15s
-    Cấu hình wlan7 monitor mode CH11      :a3, after a2, 3s
+    Cấu hình wlan31 monitor mode CH11      :a3, after a2, 3s
 
     section Kismet WIDS
-    sudo kismet -c wlan7                   :b1, after a3, 10s
+    sudo kismet -c wlan31                  :b1, after a3, 10s
     Kismet sẵn sàng nhận request API      :milestone, b2, after b1, 0s
 
     section ELK Stack (Docker)
@@ -291,9 +291,9 @@ gantt
 
 | Thành phần | Loại | Địa chỉ / Đường dẫn | Vai trò |
 |---|---|---|---|
-| `dense_wifi_topology.py` | Python Script | `src/` | Tạo mạng Wi-Fi ảo với 3 AP hợp lệ + 1 Rogue AP |
-| `mac80211_hwsim` | Kernel Module | `wlan0`–`wlan15` | Cung cấp 16 card Wi-Fi ảo |
-| `wlan15` | Monitor Interface | CH11 | Bắt mọi frame 802.11 cho Kismet |
+| `dense_wifi_topology.py` | Python Script | `src/` | Tạo mạng Wi-Fi ảo với 8 AP hợp lệ + 4 Rogue AP |
+| `mac80211_hwsim` | Kernel Module | `wlan0`–`wlan32` | Cung cấp 32 card Wi-Fi ảo |
+| `wlan31` | Monitor Interface | CH11 | Bắt mọi frame 802.11 cho Kismet |
 | **Kismet WIDS** | Daemon | `localhost:2501` | Phân tích frame → sinh alert APSPOOF/Deauth/v.v. |
 | `kismet_wips_daemon.py` | Active WIPS Daemon & Bridge | `src/` | Daemon kết nối API Kismet, chuẩn hóa log và cô lập Rogue AP (IP block & Deauth) |
 | **Logstash** | Docker Container | `ecp-logstash:5044` | Parse + enrich + forward → Elasticsearch |
@@ -328,7 +328,7 @@ flowchart LR
     end
 
     ROGUE2 -->|"Beacon / Probe / Deauth\n802.11 frames"| AIR
-    AIR -->|"Captured by wlan15\nMonitor Mode"| KS2
+    AIR -->|"Captured by wlan31\nMonitor Mode"| KS2
     KS2 -->|"REST API\nalerts JSON"| WIPS
     WIPS -->|"Normalized JSON Events\n/var/log/kismet-wips/wips-alerts.json"| PIPE
     PIPE -->|"HTTPS + TLS\nBulk Index"| IDX

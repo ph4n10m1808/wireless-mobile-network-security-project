@@ -12,8 +12,8 @@ Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi
     - [x] 1.1.2. Cài đặt Python 3 và các thư viện cần thiết (`pip install requests datetime timezone`)
     - [x] 1.1.3. Cài đặt các công cụ mạng bổ trợ và tấn công không dây (`nmap`, `wireless-tools`, `aircrack-ng`, `jq`)
   - [x] **1.2. Giả lập Sóng Vô tuyến ảo**
-    - [x] 1.2.1. Nạp driver nhân Linux giả lập sóng (`sudo modprobe mac80211_hwsim radios=16`)
-    - [x] 1.2.2. Kiểm tra driver bằng lệnh `iw dev` (Đảm bảo xuất hiện các interface ảo từ `wlan0` đến `wlan15`)
+    - [x] 1.2.1. Nạp driver nhân Linux giả lập sóng (`sudo modprobe mac80211_hwsim radios=32`)
+    - [x] 1.2.2. Kiểm tra driver bằng lệnh `iw dev` (Đảm bảo xuất hiện các interface ảo từ `wlan0` đến `wlan32`)
     - [x] 1.2.3. Cấu hình tự động nạp module driver sau khi reboot host (Cập nhật `/etc/modules`)
   - [x] **1.3. Cài đặt & Dọn dẹp Mininet-WiFi**
     - [x] 1.3.1. Cài đặt Mininet-WiFi gốc và các thành phần phụ thuộc (`wmediumd`)
@@ -42,11 +42,11 @@ Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi
     - [x] 3.1.1. Cài đặt Kismet thông qua repository (`sudo apt install kismet -y`)
     - [x] 3.1.2. Xác nhận Kismet đã cài đặt thành công (`kismet --version`)
   - [x] **3.2. Cấu hình Card Giám sát Monitor Mode**
-    - [x] 3.2.1. Lựa chọn card mạng ảo trống `wlan15` làm anten nghe trộm sóng ảo
-    - [x] 3.2.2. Chuyển card `wlan15` sang Monitor mode (`sudo ip link set wlan15 down && sudo iw dev wlan15 set type monitor && sudo ip link set wlan15 up`)
-    - [x] 3.2.3. Kiểm tra lại trạng thái monitor mode bằng lệnh `iw dev wlan15`
+    - [x] 3.2.1. Lựa chọn card mạng ảo trống `wlan31` làm anten nghe trộm sóng ảo
+    - [x] 3.2.2. Chuyển card `wlan31` sang Monitor mode (`sudo ip link set wlan31 down && sudo iw dev wlan31 set type monitor && sudo ip link set wlan31 up`)
+    - [x] 3.2.3. Kiểm tra lại trạng thái monitor mode bằng lệnh `iw dev wlan31`
   - [x] **3.3. Cấu hình & Chạy Kismet**
-    - [x] 3.3.1. Chạy Kismet chỉ định bắt gói trên card monitor ảo (`sudo kismet -c wlan15 --no-sqlite`)
+    - [x] 3.3.1. Chạy Kismet chỉ định bắt gói trên card monitor ảo (`sudo kismet -c wlan31 --no-sqlite`)
     - [x] 3.3.2. Truy cập giao diện Web UI Kismet tại `http://localhost:2501` để kiểm tra quét sóng ảo thành công
   - [x] **3.4. Chạy WIPS Daemon & Cầu nối API (`kismet_wips_daemon.py`)**
     - [x] 3.4.1. Tạo file WIPS Daemon Python `src/kismet_wips_daemon.py` kết nối với REST API của Kismet
@@ -59,7 +59,7 @@ Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi
     - [x] 4.1.2. Kiểm tra hàm ghi log chuẩn hóa JSON hoạt động ổn định
   - [x] **4.2. Thực thi Ngăn chặn & Cô lập Vô tuyến**
     - [x] 4.2.1. Trích xuất thông tin vi phạm (BSSID của Rogue AP hoặc MAC của Attacker thực hiện deauth flood)
-    - [x] 4.2.2. Tự động dùng card mạng `wlan14` bắn gói deauth ngăn chặn kết nối tới Rogue AP
+    - [x] 4.2.2. Tự động dùng card mạng `wlan30` bắn gói deauth ngăn chặn kết nối tới Rogue AP
     - [x] 4.2.3. Tự động ghi MAC/IP vi phạm vào file blacklist tường lửa (`simulated_blacklist.txt` trên Host)
     - [x] 4.2.4. Ghi lại lịch sử hoạt động ngăn chặn vào nhật ký cách ly `/var/log/kismet-wips/active-response.log`
 
@@ -76,14 +76,14 @@ Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi
 
 - [x] **6. Tấn công Thực nghiệm, Kiểm thử & Đánh giá (Live Hacking & Testing)**
   - [x] **6.1. Kiểm thử Kịch bản Rogue AP / Evil Twin**
-    - [x] 6.1.1. Chạy Mininet-WiFi `dense_wifi_topology.py` kích hoạt node `rogueap` phát sóng trùng tên
+    - [x] 6.1.1. Chạy Mininet-WiFi `dense_wifi_topology.py` kích hoạt các node rogue AP `ap9-ap12` phát sóng trùng tên
     - [x] 6.1.2. Xác nhận Kismet phát hiện cảnh báo Rogue AP / SSID Spoofing trên giao diện Web UI và qua API
   - [x] **6.2. Kiểm thử Kịch bản Deauthentication Flood thật**
-    - [x] 6.2.1. Mở terminal tấn công, sử dụng `aireplay-ng -0 150 -a <BSSID> -c <Client_MAC> wlan14` gửi gói deauth flood thực
+    - [x] 6.2.1. Mở terminal tấn công, sử dụng `aireplay-ng -0 150 -a <BSSID> -c <Client_MAC> wlan30` gửi gói deauth flood thực
     - [x] 6.2.2. Xác nhận Kismet phát hiện, kích hoạt cảnh báo `DEAUTH_FLOOD` mức `Critical`
   - [x] **6.3. Kiểm thử Tương quan Hệ thống & Phản ứng**
     - [x] 6.3.1. Kiểm tra log WIPS Daemon nhận sự kiện $\rightarrow$ Đẩy lên Logstash $\rightarrow$ Kibana hiển thị cảnh báo
-    - [x] 6.3.2. Xác nhận daemon Active Response tự động chặn Rogue AP qua `wlan14` và ghi MAC/IP vi phạm vào `simulated_blacklist.txt` cách ly thành công
+    - [x] 6.3.2. Xác nhận daemon Active Response tự động chặn Rogue AP qua `wlan30` và ghi MAC/IP vi phạm vào `simulated_blacklist.txt` cách ly thành công
 
 - [ ] **7. Hoàn thiện Đồ án & Chuẩn bị Báo cáo Bảo vệ**
   - [ ] **7.1. Biên soạn Slide Thuyết trình**

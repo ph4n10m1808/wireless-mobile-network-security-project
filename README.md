@@ -2,20 +2,20 @@
 
 Dự án này tập trung vào việc **thiết kế, mô phỏng và triển khai một giải pháp phát hiện/ngăn chặn xâm nhập không dây (WIDS/WIPS) thực tế sử dụng Kismet WIDS**, sau đó tích hợp và chuẩn hóa dữ liệu cảnh báo thời gian thực vào hạ tầng **SIEM ELK Stack** (Elasticsearch, Logstash, Kibana) nhằm thực hiện quản lý, phân tích an ninh tập trung.
 
-Hệ thống được thiết kế chạy **hoàn toàn trong môi trường Kali Linux**, tận dụng tối đa driver `mac80211_hwsim` giả lập sóng vô tuyến 802.11 thực sự để Kismet WIDS thu thập gói tin ở chế độ Monitor Mode qua card mạng ảo `wlan15` trực tiếp từ topo **Mininet-WiFi**.
+Hệ thống được thiết kế chạy **hoàn toàn trong môi trường Kali Linux**, tận dụng tối đa driver `mac80211_hwsim` giả lập sóng vô tuyến 802.11 thực sự để Kismet WIDS thu thập gói tin ở chế độ Monitor Mode qua card mạng ảo `wlan31` trực tiếp từ topo **Mininet-WiFi**.
 
 ---
 
 ## 🚀 Các Tính Năng Nổi Bật
 
-1. **Giả Lập Sóng Wi-Fi Mật Độ Cao Thực Tế**: Sử dụng driver kernel `mac80211_hwsim` cấu hình 16 radios ảo kết hợp **Mininet-WiFi** để tạo ra môi trường sóng 802.11 thực sự, cho phép Kismet quét và bắt gói tin thô (raw frames) như môi trường vật lý.
+1. **Giả Lập Sóng Wi-Fi Mật Độ Cao Thực Tế**: Sử dụng driver kernel `mac80211_hwsim` cấu hình 32 radios ảo kết hợp **Mininet-WiFi** để tạo ra môi trường sóng 802.11 thực sự, cho phép Kismet quét và bắt gói tin thô (raw frames) như môi trường vật lý.
 2. **Phát Hiện Tấn Công Bằng Kismet WIDS**: Sử dụng công cụ Kismet chuyên nghiệp để giám sát và phát hiện các cuộc tấn công mạng vô tuyến thời gian thực:
-   - **Evil Twin / Rogue AP** giả mạo SSID nội bộ `Company-WiFi` dùng mã hóa Open.
+   - **Evil Twin / Rogue AP** giả mạo SSID nội bộ `Company-WiFi` hoặc Guest `Company-Guest` không mã hóa.
    - **Deauthentication Flood** phá sóng gây gián đoạn kết nối hàng loạt client.
    - **Authentication Flood / Beacon Flood** tấn công DoS tài nguyên sóng.
    - **Unknown / Unregistered Client** kết nối trái phép vào mạng nội bộ.
 3. **Bộ Ngăn Chặn Chủ Động Thực Tế (WIPS Active Containment)**:
-   - **Cô lập mức sóng vô tuyến (Wireless Deauth Containment)**: Tự động dùng `aireplay-ng` qua card mạng ngăn chặn chuyên dụng `wlan14` gửi gói deauth liên tục ngắt kết nối giữa Rogue AP và client.
+   - **Cô lập mức sóng vô tuyến (Wireless Deauth Containment)**: Tự động dùng `aireplay-ng` qua card mạng ngăn chặn chuyên dụng `wlan30` gửi gói deauth liên tục ngắt kết nối giữa Rogue AP và client.
    - **Cô lập mức mạng (IP Blacklisting)**: Tự động chặn địa chỉ IP/MAC vi phạm và đưa vào danh sách đen tường lửa (`simulated_blacklist.txt`).
 4. **Chuẩn Hóa & Tích Hợp SIEM**: Động cơ WIPS Daemon (`kismet_wips_daemon.py`) liên tục truy vấn REST API của Kismet, chuẩn hóa các cảnh báo thô sang cấu trúc JSON SIEM thống nhất, ghi log thời gian thực để **Logstash** phân tích và đẩy lên **Elasticsearch**.
 5. **Trực Quan Hóa Tương Tác**: Dashboard bảo mật tập trung trên **Kibana** giúp quản trị viên nắm bắt nhanh chóng tình hình an ninh vô tuyến và đưa ra phản ứng kịp thời.
@@ -29,19 +29,19 @@ Hệ thống được thiết kế chạy **hoàn toàn trong môi trường Kal
 flowchart TB
     subgraph VIRTUAL_NET["🖥️ Tầng Mạng Ảo (Mininet-WiFi + mac80211_hwsim)"]
         direction LR
-        AP1["📡 ap1\nCompany-WiFi\nCH1 · Legit BSSID"]
-        AP2["📡 ap2\nCompany-WiFi\nCH6 · Legit BSSID"]
-        AP3["📡 ap3\nCompany-Guest\nCH11 · Legit BSSID"]
-        ROGUE["⚠️ ap4 (Rogue AP)\nCompany-WiFi\nCH11 · Open Encryption"]
-        STA["📱 sta1–sta8\n8 Wireless Clients"]
+        AP1["📡 ap1/ap3/ap5\nCompany-WiFi\nCH1/6/11 · Legit BSSIDs"]
+        AP2["📡 ap2/ap4/ap6\nCompany-WiFi-5G\nCH36/40/44 · Legit BSSIDs"]
+        AP3["📡 ap7/ap8\nCompany-Guest & 5G\nCH6/149 · Legit BSSIDs"]
+        ROGUE["⚠️ ap9–ap12 (4 Rogue APs)\nCompany-WiFi & Guest\n2.4G/5G · Open Encryption"]
+        STA["📱 sta1–sta12\n12 Wireless Clients"]
         STA -->|Kết nối hợp lệ| AP1 & AP2 & AP3
         STA -.->|Bị dụ kết nối| ROGUE
     end
 
     subgraph SENSORS["🔍 Tầng Cảm biến (Sensor Layer)"]
         direction TB
-        WLAN15["🛰️ wlan15\nMonitor Mode · CH11\nHost Monitor Interface"]
-        KISMET["🐾 Kismet WIDS\nlocalhost:2501\nsudo kismet -c wlan15"]
+        WLAN15["🛰️ wlan31\nMonitor Mode · CH11\nHost Monitor Interface"]
+        KISMET["🐾 Kismet WIDS\nlocalhost:2501\nsudo kismet -c wlan31"]
         WLAN15 -->|"Bắt gói tin thô\n802.11 raw frames"| KISMET
         VIRTUAL_NET -.->|"phát sóng ảo\n(mac80211_hwsim)"| WLAN15
     end
@@ -49,7 +49,7 @@ flowchart TB
     subgraph BRIDGE["🔄 Tầng Cầu nối & WIPS (Bridge / Active Prevention)"]
         KISMET_WIPS["🛡️ kismet_wips_daemon.py\nActive WIPS Daemon & Bridge"]
         KISMET -->|"REST API\n/alerts/all_alerts.json"| KISMET_WIPS
-        KISMET_WIPS -.->|"Gửi gói Deauth ngăn chặn\n(aireplay-ng via wlan14)"| VIRTUAL_NET
+        KISMET_WIPS -.->|"Gửi gói Deauth ngăn chặn\n(aireplay-ng via wlan30)"| VIRTUAL_NET
     end
 
     subgraph LOGS["📁 Log Files (Host Filesystem)"]
@@ -77,9 +77,9 @@ flowchart TB
 
 - 📄 **`run_project.sh`**: Script cốt lõi điều khiển toàn bộ dự án (Khởi động SIEM, dọn dẹp card mạng, bật topo Mininet-WiFi, chạy bridge API ngầm).
 - 📂 **`src/`**: Thư mục chứa mã nguồn chính của ứng dụng:
-  - 📄 `dense_wifi_topology.py`: Script Python thiết lập mạng Wi-Fi ảo mật độ cao bằng Mininet-WiFi, tự động vá lỗi giữ driver và cấu hình card monitor `wlan15`.
-  - 📄 `kismet_wips_daemon.py`: Động cơ ngăn chặn chủ động (WIPS) & API Bridge kết hợp, xử lý phát hiện, ghi logs chuẩn hóa và kích hoạt deauth cách ly qua `wlan14`.
-  - 📄 `kali_wids_attacks.sh`: Shell script giả lập tấn công thực nghiệm sử dụng `aireplay-ng` và `mdk4` trên card `wlan14`.
+  - 📄 `dense_wifi_topology.py`: Script Python thiết lập mạng Wi-Fi ảo mật độ cao bằng Mininet-WiFi, tự động vá lỗi giữ driver và cấu hình card monitor `wlan31`.
+  - 📄 `kismet_wips_daemon.py`: Động cơ ngăn chặn chủ động (WIPS) & API Bridge kết hợp, xử lý phát hiện, ghi logs chuẩn hóa và kích hoạt deauth cách ly qua `wlan30`.
+  - 📄 `kali_wids_attacks.sh`: Shell script giả lập tấn công thực nghiệm sử dụng `aireplay-ng` và `mdk4` trên card `wlan30`.
 - 📂 **`SIEM/`**: Chứa hạ tầng bảo mật SIEM chạy trên nền Docker:
   - 📄 `docker-compose.yml`: Khai báo 3 dịch vụ Elasticsearch, Logstash, Kibana (phiên bản v9.0.1 bảo mật cao).
   - 📂 `logstash/pipeline/logstash.conf`: Cấu hình tiếp nhận log file và đẩy index Elasticsearch.
