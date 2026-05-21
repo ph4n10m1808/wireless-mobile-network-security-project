@@ -117,11 +117,16 @@ echo "[*] 3. Cài đặt các thư viện Python trong môi trường conda..."
 echo ""
 echo "[*] 4. Chạy bộ cài đặt hệ thống Mininet-WiFi (-Wlnfv)..."
 
-# Fix: Clean up stale 'iw' directory that confuses git submodule update
+# Fix: Clean up stale 'iw' gitlink that confuses git submodule update
 # (iw was previously git-cloned as standalone repo, not a real submodule)
-if [ -d "$SCRIPT_DIR/mininet-wifi/iw/.git" ]; then
+if [ -d "$SCRIPT_DIR/mininet-wifi/iw" ]; then
     echo "[*] Dọn dẹp thư mục iw cũ (fix git submodule conflict)..."
     rm -rf "$SCRIPT_DIR/mininet-wifi/iw"
+fi
+# Also remove iw from git index if still tracked as gitlink
+if git -C "$SCRIPT_DIR/mininet-wifi" ls-files --stage | grep -q $'\t'"iw$"; then
+    echo "[*] Xóa iw khỏi git index..."
+    git -C "$SCRIPT_DIR/mininet-wifi" rm --cached -f iw 2>/dev/null || true
 fi
 
 cd "$SCRIPT_DIR/mininet-wifi"

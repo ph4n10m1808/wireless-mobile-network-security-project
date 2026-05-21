@@ -9,15 +9,17 @@ import urllib.error
 
 # Default checklist markdown file (fallback)
 DEFAULT_CHECKLIST = "kismet_siem_elk_checklist.md"
-ENV_PATH = ".env"
 
-# Directory to scan for .md files (project root)
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+# Paths relative to the script location (tools/)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)  # one level up from tools/
+DOCS_DIR = os.path.join(PROJECT_ROOT, "docs")
+ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
 
 
 def choose_md_file():
     """Scans the project root for .md files and presents an interactive picker menu."""
-    md_files = sorted(glob.glob(os.path.join(PROJECT_ROOT, "*.md")))
+    md_files = sorted(glob.glob(os.path.join(DOCS_DIR, "*.md")))
     if not md_files:
         print("[!] No .md files found in project root.")
         sys.exit(1)
