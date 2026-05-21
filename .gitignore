@@ -3,7 +3,7 @@
 # Vagrant
 .vagrant/
 vagrant/
-kali/
+
 
 # Python Cache
 __pycache__/

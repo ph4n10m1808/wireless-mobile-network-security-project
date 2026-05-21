@@ -1,0 +1,83 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# [ignoring loop detection]
+Vagrant.configure("2") do |config|
+  # Sử dụng Kali Linux Rolling Box chính thức
+  config.vm.box = "kalilinux/rolling"
+
+  # Cấu hình tài nguyên phần cứng tối thiểu cho SIEM ELK Stack & Kismet
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "Kali-WIPS-SIEM-Lab"
+    vb.gui = false
+    vb.memory = "8192" # 8GB RAM (ELK rất ngốn RAM)
+    vb.cpus = 4        # 4 Cores CPU để chạy mượt mà
+    # Kích hoạt ảo hóa lồng ghép (Nested Virtualization)
+    vb.customize ["modifyvm", :id, "--nested-hw-virt", "on"] rescue nil
+  end
+
+  # Mở cổng chuyển tiếp (Port Forwarding) ra Host
+  # Kibana Web UI
+  config.vm.network "forwarded_port", guest: 5601, host: 5601, auto_correct: true
+  # Kismet API & Web UI
+  config.vm.network "forwarded_port", guest: 2501, host: 2501, auto_correct: true
+  # Elasticsearch Engine
+  config.vm.network "forwarded_port", guest: 9200, host: 9200, auto_correct: true
+
+  # Tắt đồng bộ thư mục mặc định của Vagrant để đảm bảo cô lập hoàn hảo
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+
+  # Kịch bản Provision cài đặt tự động từ A-Z khi khởi động VM lần đầu (vagrant up)
+  config.vm.provision "shell", inline: <<-SHELL
+    set -e
+    export DEBIAN_FRONTEND=noninteractive
+
+    echo "=========================================================================="
+    echo " 🛡️ KHỞI CHẠY TIẾN TRÌNH CÀI ĐẶT DỰ ÁN WIPS-SIEM LAB TRÊN KALI VM 🛡️"
+    echo "=========================================================================="
+
+    # 1. Cập nhật hệ thống và cài đặt Git
+    apt-get update -y
+    apt-get install -y git
+
+    # 3. Clone mã nguồn trực tiếp từ GitHub của ph4n10m1808 vào máy ảo
+    CD_DIR="/usr/src/wireless-mobile-network-security-project"
+    REPO_URL="https://github.com/ph4n10m1808/wireless-mobile-network-security-project.git"
+
+    echo "    → Đang clone mã nguồn dự án từ GitHub..."
+    rm -rf "$CD_DIR"
+    git clone "$REPO_URL" "$CD_DIR"
+    
+    echo "    → Đang khởi tạo submodule mininet-wifi..."
+    cd "$CD_DIR"
+    git submodule update --init
+
+    # Tạo liên kết mềm (symlink) trong các thư mục home để người dùng truy cập thuận tiện
+    for user_home in /home/*; do
+      if [ -d "$user_home" ] && [ "$user_home" != "/home/lost+found" ]; then
+        username=$(basename "$user_home")
+        echo "    → Tạo symlink cho người dùng: $username"
+        ln -sfn "$CD_DIR" "$user_home/wireless-mobile-network-security-project"
+        chown -h "$username":"$username" "$user_home/wireless-mobile-network-security-project" 2>/dev/null || true
+      fi
+    done
+
+    # Phân quyền thực thi cho toàn bộ script dự án
+    chmod +x run_project.sh setup_miniconda_env.sh src/*.sh src/*.py tools/*.py tools/*.sh SIEM/*.sh
+
+    # Chạy script cài đặt môi trường (Miniconda, Mininet-WiFi & dependencies)
+    ./setup_miniconda_env.sh
+
+    # 4. Tăng giới hạn bộ nhớ ảo hệ thống cho Elasticsearch
+    sysctl -w vm.max_map_count=262144
+    echo "vm.max_map_count=262144" | tee -a /etc/sysctl.conf
+
+    echo "=========================================================================="
+    echo " 🎉 QUÁ TRÌNH CÀI ĐẶT THÀNH CÔNG! KHỞI ĐỘNG VAGRANT KALI VM HOÀN TẤT!"
+    echo "    - Để SSH vào máy ảo: 'vagrant ssh'"
+    echo "    - Đi tới thư mục dự án: 'cd ~/wireless-mobile-network-security-project'"
+    echo "    - Chạy dự án: 'sudo ./run_project.sh'"
+    echo "    - Truy cập Kibana từ trình duyệt host: https://localhost:5601"
+    echo "=========================================================================="
+  SHELL
+end
