@@ -8,6 +8,7 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+mkdir -p /etc/kismet
 cat > /etc/kismet/kismet_site.conf << 'KISMET_CONF'
 # =========================================================================
 # Whitelist bảo vệ mạng nội bộ giả lập (Dense Dual-Band Topology)

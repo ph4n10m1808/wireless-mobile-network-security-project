@@ -272,6 +272,13 @@ start_project() {
   echo -e "\n${YELLOW}[1/5] Dọn dẹp môi trường mạng và tiến trình cũ...${NC}"
   cleanup_processes
 
+  # Tự động cấu hình Kismet WIDS (AP Whitelist & Alert Rates) trước khi chạy
+  if [ -f "$PROJ_DIR/tools/fix_kismet_config.sh" ]; then
+    echo -e "${BLUE}[*] Tự động cấu hình Kismet WIDS (kismet_site.conf)...${NC}"
+    chmod +x "$PROJ_DIR/tools/fix_kismet_config.sh"
+    "$PROJ_DIR/tools/fix_kismet_config.sh" >/dev/null 2>&1 || true
+  fi
+
   # ── Bước 2: Khởi động SONG SONG — SIEM + WIPS Daemon ─────────────────────
   echo -e "\n${YELLOW}[2/5] Khởi động SONG SONG: SIEM (ELK) & WIPS Daemon thu thập log...${NC}"
 
@@ -390,10 +397,11 @@ show_interactive_menu() {
     echo -e "  ${WHITE}[6]${NC} Chỉ tắt SIEM (Cụm container ELK Stack)"
     echo -e "  ${WHITE}[7]${NC} Tắt SIEM & Xóa dữ liệu (${RED}Reset volumes — giữ images${NC})"
     echo -e "  ${WHITE}[8]${NC} Xóa hoàn toàn SIEM (${RED}Volumes + Images + Logs — clean slate${NC})"
+    echo -e "  ${WHITE}[9]${NC} Cấu hình & tối ưu hóa Kismet WIDS (AP Whitelist)"
     echo -e "  ${WHITE}[0]${NC} Thoát"
     echo -e "${CYAN}===================================================================${NC}"
     
-    echo -e -n "${WHITE}Vui lòng chọn chức năng [0-8]: ${NC}"
+    echo -e -n "${WHITE}Vui lòng chọn chức năng [0-9]: ${NC}"
     read choice
     case $choice in
       1)
@@ -428,6 +436,16 @@ show_interactive_menu() {
       8)
         purge_siem
         break
+        ;;
+      9)
+        if [ -f "$PROJ_DIR/tools/fix_kismet_config.sh" ]; then
+          chmod +x "$PROJ_DIR/tools/fix_kismet_config.sh"
+          "$PROJ_DIR/tools/fix_kismet_config.sh"
+        else
+          echo -e "${RED}[!] Không tìm thấy script cấu hình Kismet tại tools/fix_kismet_config.sh${NC}"
+        fi
+        echo -e -n "${WHITE}Ấn Enter để tiếp tục...${NC}"
+        read -r
         ;;
       0)
         echo -e "${WHITE}Tạm biệt!${NC}"
