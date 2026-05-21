@@ -58,6 +58,7 @@ flowchart TB
 ## 2. Chi tiết luồng dữ liệu từ nguồn đến đích
 
 ```mermaid
+%%{init: {'theme':'default','themeVariables':{'fontSize':'11px'}}}%%
 sequenceDiagram
     participant MN  as 🖥️ Mininet-WiFi<br/>(dense_wifi_topology.py)
     participant HW  as 📻 mac80211_hwsim<br/>(wlan31 monitor)

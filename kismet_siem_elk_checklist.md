@@ -64,16 +64,16 @@ Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi
     - [x] 4.2.3. Tự động ghi MAC/IP vi phạm vào file blacklist tường lửa (`simulated_blacklist.txt` trên Host)
     - [x] 4.2.4. Ghi lại lịch sử hoạt động ngăn chặn vào nhật ký cách ly `/var/log/kismet-wips/active-response.log`
 
-- [ ] **5. Cấu hình Dashboard & Phân tích Cảnh báo (Kibana SIEM)**
-  - [ ] **5.1. Tạo Data Views trên Kibana**
-    - [ ] 5.1.1. Tạo Data View `wids-alerts-*` kết nối tới Elasticsearch
-    - [ ] 5.1.2. Kiểm tra ánh xạ kiểu dữ liệu (đảm bảo các trường như `event_type.keyword` đã sẵn sàng)
-  - [ ] **5.2. Thiết kế giao diện Dashboard tập trung**
-    - [ ] 5.2.1. Widget 1: Bộ đếm tổng số cuộc tấn công vô tuyến thực tế do Kismet phát hiện
-    - [ ] 5.2.2. Widget 2: Biểu đồ cột thể hiện Top SSIDs/BSSIDs bị tấn công hoặc giả mạo do Kismet bắt được
-    - [ ] 5.2.3. Widget 3: Biểu đồ tròn phân tích tỷ lệ các loại tấn công (Deauth Flood, Rogue AP, Evil Twin)
-    - [ ] 5.2.4. Widget 4: Biểu đồ giám sát các hành động cách ly thành công (Active response containment)
-    - [ ] 5.2.5. Widget 5: Trực quan hóa nhật ký cách ly của WIPS Active Response từ file log của daemon
+- [x] **5. Cấu hình Dashboard & Phân tích Cảnh báo (Kibana SIEM)**
+  - [x] **5.1. Tạo Data Views trên Kibana**
+    - [x] 5.1.1. Tạo Data View `wids-alerts-*` kết nối tới Elasticsearch
+    - [x] 5.1.2. Kiểm tra ánh xạ kiểu dữ liệu (đảm bảo các trường như `event_type.keyword` đã sẵn sàng)
+  - [x] **5.2. Thiết kế giao diện Dashboard tập trung**
+    - [x] 5.2.1. Widget 1: Bộ đếm tổng số cuộc tấn công vô tuyến thực tế do Kismet phát hiện
+    - [x] 5.2.2. Widget 2: Biểu đồ cột thể hiện Top SSIDs/BSSIDs bị tấn công hoặc giả mạo do Kismet bắt được
+    - [x] 5.2.3. Widget 3: Biểu đồ tròn phân tích tỷ lệ các loại tấn công (Deauth Flood, Rogue AP, Evil Twin)
+    - [x] 5.2.4. Widget 4: Biểu đồ giám sát các hành động cách ly thành công (Active response containment)
+    - [x] 5.2.5. Widget 5: Trực quan hóa nhật ký cách ly của WIPS Active Response từ file log của daemon
 
 - [x] **6. Tấn công Thực nghiệm, Kiểm thử & Đánh giá (Live Hacking & Testing)**
   - [x] **6.1. Kiểm thử Kịch bản Rogue AP / Evil Twin**
@@ -86,12 +86,12 @@ Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi
     - [x] 6.3.1. Kiểm tra log WIPS Daemon nhận sự kiện $\rightarrow$ Đẩy lên Logstash $\rightarrow$ Kibana hiển thị cảnh báo
     - [x] 6.3.2. Xác nhận daemon Active Response tự động chặn Rogue AP qua `wlan30` và ghi MAC/IP vi phạm vào `simulated_blacklist.txt` cách ly thành công
 
-- [ ] **7. Hoàn thiện Đồ án & Chuẩn bị Báo cáo Bảo vệ**
-  - [ ] **7.1. Biên soạn Slide Thuyết trình**
-    - [ ] 7.1.1. Slide Giới thiệu: Đề tài bảo mật WiFi thực tế sử dụng Kismet WIDS thật kết hợp Mininet-WiFi ảo hóa
-    - [ ] 7.1.2. Slide Kiến trúc: Sơ đồ Mermaid luồng dữ liệu Kismet WIDS -> WIPS Daemon -> Logstash -> ES -> Kibana SIEM
-    - [ ] 7.1.3. Slide Giá trị thực tiễn: Lợi ích của việc phân tích gói tin 802.11 thực bằng Kismet so với các bộ mô phỏng log thông thường
-  - [ ] **7.2. Chuẩn bị Kịch bản Demo thực tế trước Hội đồng**
-    - [ ] 7.2.1. Thiết lập sẵn các Cửa sổ Terminal chuyên nghiệp tương ứng với các luồng hoạt động
-    - [ ] 7.2.2. Kiểm tra tính ổn định của Kismet quét sóng ảo và tốc độ tương quan log trên Kibana Dashboard trước giờ bảo vệ
-    - [ ] 7.2.3. Chuẩn bị sẵn tài liệu backup (ảnh chụp dashboard, log file mẫu) đề phòng sự cố kỹ thuật đột xuất
+- [x] **7. Hoàn thiện Đồ án & Chuẩn bị Báo cáo Bảo vệ**
+  - [x] **7.1. Biên soạn Slide Thuyết trình**
+    - [x] 7.1.1. Slide Giới thiệu: Đề tài bảo mật WiFi thực tế sử dụng Kismet WIDS thật kết hợp Mininet-WiFi ảo hóa
+    - [x] 7.1.2. Slide Kiến trúc: Sơ đồ Mermaid luồng dữ liệu Kismet WIDS -> WIPS Daemon -> Logstash -> ES -> Kibana SIEM
+    - [x] 7.1.3. Slide Giá trị thực tiễn: Lợi ích của việc phân tích gói tin 802.11 thực bằng Kismet so với các bộ mô phỏng log thông thường
+  - [x] **7.2. Chuẩn bị Kịch bản Demo thực tế trước Hội đồng**
+    - [x] 7.2.1. Thiết lập sẵn các Cửa sổ Terminal chuyên nghiệp tương ứng với các luồng hoạt động
+    - [x] 7.2.2. Kiểm tra tính ổn định của Kismet quét sóng ảo và tốc độ tương quan log trên Kibana Dashboard trước giờ bảo vệ
+    - [x] 7.2.3. Chuẩn bị sẵn tài liệu backup (ảnh chụp dashboard, log file mẫu) đề phòng sự cố kỹ thuật đột xuất
