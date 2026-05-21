@@ -171,7 +171,7 @@ echo "[*] 4. Chạy bộ cài đặt hệ thống Mininet-WiFi (-Wlnfv)..."
 # Tự động tải/cập nhật git submodules nếu thư mục trống hoặc thiếu installer
 if [ ! -f "$SCRIPT_DIR/mininet-wifi/util/install.sh" ]; then
     echo "[*] Không tìm thấy mã nguồn Mininet-WiFi. Tự động tải git submodules..."
-    git -C "$SCRIPT_DIR" submodule update --init --recursive
+    git -C "$SCRIPT_DIR" submodule update --init
 fi
 
 # Fix: Clean up stale 'iw' gitlink that confuses git submodule update
@@ -187,6 +187,12 @@ if git -C "$SCRIPT_DIR/mininet-wifi" ls-files --stage | grep -q $'\t'"iw$"; then
 fi
 
 cd "$SCRIPT_DIR/mininet-wifi"
+# Vá (patch) động file install.sh để tránh lỗi đệ quy submodule mininet/iw
+if [ -f "./util/install.sh" ]; then
+    echo "[*] Vá động file install.sh để bỏ cờ --recursive khi cập nhật submodule..."
+    sed -i 's/git submodule update --init --recursive/git submodule update --init/g' ./util/install.sh
+fi
+
 PYTHON="$CONDA_PYTHON" ./util/install.sh -Wlnfv
 cd "$SCRIPT_DIR"
 
