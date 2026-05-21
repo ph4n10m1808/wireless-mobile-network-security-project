@@ -55,9 +55,20 @@ unmanaged-devices=interface-name:wlan*,except:interface-name:wlan0;interface-nam
 # Dọn dẹp tài nguyên trước khi nạp module
 # -------------------------------------------------------------------
 def cleanup_before_reload():
+    import sys
     info("*** [Dọn dẹp] Tắt kismet và dọn dẹp Mininet cũ...\n")
     subprocess.run(['killall', '-9', 'kismet'], capture_output=True)
-    subprocess.run(['mn', '-c'], capture_output=True)
+    # Tìm mn trong cùng thư mục với python interpreter đang chạy (Conda environment)
+    mn_path = 'mn'
+    conda_mn = os.path.join(os.path.dirname(sys.executable), 'mn')
+    if os.path.exists(conda_mn):
+        mn_path = conda_mn
+    else:
+        for path in ['/usr/bin/mn', '/usr/local/bin/mn']:
+            if os.path.exists(path):
+                mn_path = path
+                break
+    subprocess.run([mn_path, '-c'], capture_output=True)
 
 
 # -------------------------------------------------------------------
