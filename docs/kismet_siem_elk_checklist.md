@@ -1,6 +1,6 @@
 # Checklist Tiến độ Hoàn thành Dự án Kismet WIDS & ELK SIEM (Dạng Tree Chi tiết)
 
-Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi tiết từng đầu mục công việc từ chuẩn bị, lập cấu hình, cài đặt Kismet, chạy script đồng bộ, thực hiện tấn công thực nghiệm cho đến tích hợp SIEM ELK và bảo vệ đồ án. Đây là tài liệu quản lý đi cùng kế hoạch [kismet_siem_elk_plan.md](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/docs/kismet_siem_elk_plan.md).
+Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi tiết từng đầu mục công việc từ chuẩn bị, lập cấu hình, cài đặt Kismet, chạy script đồng bộ, thực hiện tấn công thực nghiệm cho đến tích hợp SIEM ELK và bảo vệ đồ án. Đây là tài liệu quản lý đi cùng kế hoạch [kismet_siem_elk_plan.md](kismet_siem_elk_plan.md).
 
 ---
 

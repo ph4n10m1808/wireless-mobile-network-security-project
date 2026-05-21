@@ -28,12 +28,63 @@ echo "==========================================================================
 echo "   🛡️  MININET-WIFI MINICONDA3 NETWORK ENVIRONMENT SETTING UP SCRIPT  🛡️"
 echo "=========================================================================="
 
-# ─── Step 0: Check if running as root (required for /opt install) ────────────
+# ─── Step 0: Check root & Install Kali Linux System Prerequisites ────────────
 if [ "$EUID" -ne 0 ]; then
-    echo "[!] Script cần quyền root để cài đặt vào $MINICONDA_DIR"
+    echo "[!] Script cần quyền root để cài đặt vào $MINICONDA_DIR và biên dịch hệ thống."
     echo "    Hãy chạy lại: sudo $0"
     exit 1
 fi
+
+echo ""
+echo "[*] 0. Đang chuẩn bị và cài đặt các phụ thuộc hệ thống cần thiết cho Kali Linux..."
+echo "    → Cập nhật danh sách gói (apt update)..."
+apt-get update -y || true
+
+echo "    → Đang cài đặt Git, Docker, Kismet và các thư viện biên dịch mạng ảo..."
+# Cài đặt toàn bộ dependencies biên dịch cho Mininet-WiFi, wmediumd, iw và ELK Stack
+apt-get install -y \
+    git \
+    docker.io \
+    docker-compose \
+    kismet \
+    curl \
+    wget \
+    build-essential \
+    pkg-config \
+    bison \
+    flex \
+    libnl-3-dev \
+    libnl-genl-3-dev \
+    libssl-dev \
+    libreadline-dev \
+    autoconf \
+    automake \
+    libtool \
+    make \
+    gcc \
+    iw \
+    wireless-tools \
+    wpasupplicant \
+    hostapd \
+    ethtool \
+    iproute2 \
+    net-tools \
+    dkms
+
+# Khởi động dịch vụ Docker nếu chưa chạy
+if command -v systemctl &>/dev/null; then
+    echo "    → Khởi chạy và kích hoạt Docker..."
+    systemctl enable --now docker 2>/dev/null || true
+    # Phân quyền Docker cho người dùng thật (chạy sudo script) và user vagrant nếu có
+    REAL_USER="${SUDO_USER:-$(whoami)}"
+    if [ "$REAL_USER" != "root" ]; then
+        usermod -aG docker "$REAL_USER" 2>/dev/null || true
+    fi
+    if id -u vagrant &>/dev/null; then
+        usermod -aG docker vagrant 2>/dev/null || true
+    fi
+fi
+echo "[+] Đã hoàn thành chuẩn bị hệ thống Kali Linux!"
 
 # ─── Step 1: Download & Install Miniconda if not present ─────────────────────
 if [ ! -f "$CONDA_BIN" ]; then
@@ -116,6 +167,12 @@ echo "[*] 3. Cài đặt các thư viện Python trong môi trường conda..."
 # ─── Step 4: Run Mininet-WiFi system installer ──────────────────────────────
 echo ""
 echo "[*] 4. Chạy bộ cài đặt hệ thống Mininet-WiFi (-Wlnfv)..."
+
+# Tự động tải/cập nhật git submodules nếu thư mục trống hoặc thiếu installer
+if [ ! -f "$SCRIPT_DIR/mininet-wifi/util/install.sh" ]; then
+    echo "[*] Không tìm thấy mã nguồn Mininet-WiFi. Tự động tải git submodules..."
+    git -C "$SCRIPT_DIR" submodule update --init --recursive
+fi
 
 # Fix: Clean up stale 'iw' gitlink that confuses git submodule update
 # (iw was previously git-cloned as standalone repo, not a real submodule)

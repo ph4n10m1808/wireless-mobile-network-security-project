@@ -21,8 +21,27 @@ fi
 
 # Đường dẫn môi trường
 PYTHON_BIN="/opt/miniconda3/envs/network/bin/python"
-PROJ_DIR="/home/ph4n10m/Code/wireless-mobile-network-security-project"
+PROJ_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJ_DIR" || exit
+
+# Tự động phát hiện và hỏi cài đặt nếu chưa có môi trường mạng ảo (dành cho Kali Linux mới)
+if [ ! -f "$PYTHON_BIN" ]; then
+  echo -e "${YELLOW}[!] Không tìm thấy môi trường Python ảo tại $PYTHON_BIN${NC}"
+  echo -e "${YELLOW}[!] Có vẻ như hệ thống của bạn chưa được cài đặt môi trường giả lập mạng & Mininet-WiFi.${NC}"
+  echo -e -n "${WHITE}Bạn có muốn tự động khởi chạy script setup_miniconda_env.sh để tự cài đặt hệ thống ngay bây giờ? (y/N): ${NC}"
+  read -r install_confirm
+  if [[ "$install_confirm" =~ ^[Yy]$ ]]; then
+    echo -e "${GREEN}[*] Đang khởi chạy: sudo ./setup_miniconda_env.sh...${NC}"
+    ./setup_miniconda_env.sh
+    # Cấu hình lại tài nguyên ảo mặc định cho Elasticsearch ngay lập tức
+    echo -e "${GREEN}[*] Đang thiết lập cấu hình bộ nhớ ảo hệ thống (vm.max_map_count)...${NC}"
+    sysctl -w vm.max_map_count=262144 2>/dev/null || true
+    echo "vm.max_map_count=262144" | tee -a /etc/sysctl.conf 2>/dev/null || true
+  else
+    echo -e "${RED}[!] Yêu cầu cài đặt bị từ chối. Vui lòng tự chạy cài đặt: sudo ./setup_miniconda_env.sh${NC}"
+    exit 1
+  fi
+fi
 
 # Đảm bảo thư mục log tồn tại và phân quyền đầy đủ trước
 mkdir -p /var/log/kismet-wips
@@ -296,6 +315,11 @@ start_project() {
     # Kismet QUÁ SỚM — khiến Kismet mất interface khi reload_hwsim() chạy.
     echo -e "${BLUE}[Kismet-Trigger] Chờ 25s cho Mininet-WiFi khởi động và reload_hwsim()...${NC}"
     sleep 25
+
+    # Xác định thư mục home của người dùng thực chạy sudo (để Kismet ghi đúng cấu hình)
+    REAL_USER_HOME=$(getent passwd "${SUDO_USER:-$(whoami)}" | cut -d: -f6)
+    REAL_USER_HOME=${REAL_USER_HOME:-$HOME}
+
     # Chờ wlan31 vào đúng monitor mode (setup_monitor_interface phải xong)
     for i in {1..45}; do
       if iw dev wlan31 info 2>/dev/null | grep -q "type monitor"; then
@@ -307,7 +331,7 @@ start_project() {
         # --log-prefix: ghi pcap + .kismet db vào /var/log/kismet-wips/
         kismet -c 'wlan31:channels="1,6,11,36,40,44,149,153",channel_hoprate=3/sec' \
           --log-prefix /var/log/kismet-wips/ \
-          --homedir /home/ph4n10m \
+          --homedir "$REAL_USER_HOME" \
           >/var/log/kismet-wips/kismet.log 2>&1 &
         echo -e "${GREEN}[Kismet-Trigger] Kismet WIDS đã khởi động — hop 8 kênh topology (1,6,11,36,40,44,149,153) @ 3ch/s. Log: /var/log/kismet-wips/${NC}"
         break

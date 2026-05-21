@@ -2,6 +2,9 @@
 
 Tài liệu này trình bày chi tiết kế hoạch triển khai, cấu trúc luồng dữ liệu thực tế và kịch bản thực nghiệm kiểm thử cho hệ thống **WIDS/WIPS lai (Hybrid WIDS/WIPS)**. Hệ thống kết hợp giả lập môi trường Wi-Fi mật độ cao bằng **Mininet-WiFi**, bắt gói tin thật ở chế độ Monitor Mode bằng công cụ tiêu chuẩn **Kismet WIDS**, và quản lý an ninh tập trung trên cụm **SIEM ELK Stack (Elasticsearch, Logstash, Kibana)**.
 
+> [!NOTE]
+> Dự án được thiết kế chạy hoàn toàn trên máy host **Kali Linux** (cấu hình khuyến nghị: RAM 16-32 GB), không yêu cầu phần cứng Router/AP vật lý. Tối ưu hóa tài nguyên bằng cách kết hợp Docker (chạy cụm ELK Stack) và môi trường Native của Kali (chạy giả lập Wi-Fi bằng Mininet-WiFi + Kismet WIDS thật).
+
 ---
 
 ## 1. Kiến Trúc Luồng Dữ Liệu Thực Nghiệm (Data Flow)
@@ -131,6 +134,39 @@ apspoof=CompanyGuestRule:ssid="Company-Guest",validmacs="02:00:00:00:A4:00"
 apspoof=CompanyGuest5GRule:ssid="Company-Guest-5G",validmacs="02:00:00:00:A4:50"
 ```
 
+### 2.4. Thiết lập Quyền truy cập Log cho Container Logstash
+
+Để đảm bảo Logstash chạy trong Docker có quyền đọc các file log WIDS trên Host Kali Linux:
+
+```bash
+# Tạo và phân quyền cho thư mục log WIDS
+sudo mkdir -p /var/log/kismet-wips
+sudo chmod -R 755 /var/log/kismet-wips
+
+# Tạo file log rỗng và cấp quyền đọc ghi cho container
+sudo touch /var/log/kismet-wips/wips-alerts.json
+sudo touch /var/log/kismet-wips/active-response.log
+sudo chmod 666 /var/log/kismet-wips/wips-alerts.json
+sudo chmod 666 /var/log/kismet-wips/active-response.log
+```
+
+# ─── Chuẩn bị trước khi chạy (Dành cho máy Kali Linux mới) ───────────────────
+Nếu đây là một máy ảo/máy vật lý Kali Linux mới được cài đặt, vui lòng chạy các lệnh sau để đảm bảo đầy đủ môi trường:
+
+```bash
+# 1. Cập nhật hệ thống & cài đặt Git, Docker, Docker Compose, Kismet
+sudo apt update && sudo apt install git docker.io docker-compose kismet curl -y
+
+# 2. Khởi động Docker & cấp quyền không cần sudo
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+newgrp docker
+
+# 3. Phân quyền và chạy script cài đặt môi trường ảo (Miniconda & Mininet-WiFi)
+chmod +x run_project.sh setup_miniconda_env.sh src/*.sh src/*.py tools/*.py tools/*.sh SIEM/*.sh
+sudo ./setup_miniconda_env.sh
+```
+
 ---
 
 ## 3. Quy Trình Thực Nghiệm Từng Bước
@@ -173,18 +209,106 @@ sudo ./src/kali_wids_attacks.sh
 
 ---
 
-## 4. Kịch Bản Demo & Hướng Dẫn Thuyết Trình Trước Hội Đồng
+## 4. Cấu Hình Trực Quan Hóa & Tương Quan Trên Kibana (SIEM Dashboard)
+
+Sau khi khởi động ELK Stack và chạy hệ thống WIDS/WIPS, log sẽ tự động được gửi tới Elasticsearch. Thực hiện các bước sau trên Kibana để xây dựng Security Dashboard:
+
+### 4.1. Tạo Data Views trên Kibana
+
+1. Truy cập Kibana tại `https://localhost:5601` (Tài khoản: `elastic` / mật khẩu trong file `.env`).
+2. Vào **Stack Management** > **Kibana** > **Data Views** (hoặc Index Patterns).
+3. Tạo Data View mới:
+   * **`wids-alerts-*`** (Trường thời gian: `@timestamp`) → Chứa toàn bộ log cảnh báo an ninh vô tuyến từ Kismet WIDS qua WIPS Daemon.
+
+### 4.2. Thiết Kế Dashboard "Wireless Security SIEM"
+
+Thêm các Widget trực quan hóa sau vào Dashboard:
+
+1. **Metric Count (Bộ đếm cảnh báo nguy hiểm)**: Tổng số cảnh báo Wi-Fi mức Critical/High thực tế do Kismet phát hiện (Lọc theo `event_type: "evil_twin_detected" OR event_type: "deauth_flood" OR event_type: "rogue_ap_detected"`).
+2. **Bar Chart (Top SSIDs / BSSIDs bị tấn công)**: Trục X là `bssid.keyword` hoặc `ssid.keyword`, trục Y là số lượng sự kiện. Giúp xác định mục tiêu bị tấn công nhiều nhất.
+3. **Pie Chart (Tỷ lệ các loại tấn công vô tuyến)**: Phân tách theo `event_type.keyword`. Cho cái nhìn trực quan về phân bổ loại tấn công trong môi trường lab.
+4. **Bar Chart (Giám sát hành động cách ly)**: Trực quan hóa số lần WIPS Active Response kích hoạt ngăn chặn thành công (deauth containment, IP block).
+5. **Data Table (Nhật ký sự kiện chi tiết)**:
+   * Trình bày các trường: `@timestamp`, `event_type`, `severity`, `ssid`, `bssid`, `client_mac`, `description`.
+   * Thể hiện rõ timeline chuỗi sự kiện từ phát hiện → cảnh báo → cô lập.
+
+---
+
+## 5. Kịch Bản Demo & Hướng Dẫn Thuyết Trình Trước Hội Đồng
 
 Để thuyết trình đề tài một cách ấn tượng và thuyết phục nhất, hãy mở các cửa sổ Terminal như sau:
 
 | Terminal | Mục tiêu trình diễn | Chi tiết hiển thị |
 | :--- | :--- | :--- |
-| **Terminal 1** (Host) | Bảng điều khiển `run_project.sh` | Show quá trình cấu hình Driver 16 radios, tự động cấu hình bypass NetworkManager, và prompt điều khiển Mininet-WiFi (`mininet-wifi>`). |
+| **Terminal 1** (Host) | Bảng điều khiển `run_project.sh` | Show quá trình cấu hình Driver 32 radios, tự động cấu hình bypass NetworkManager, và prompt điều khiển Mininet-WiFi (`mininet-wifi>`). |
 | **Terminal 2** (Host) | Monitor Log Cô lập | Chạy lệnh `tail -f /var/log/kismet-wips/active-response.log` để show thời gian thực WIPS tự động kích hoạt ngăn chặn, block IP/MAC và kích hoạt deauth cách ly. |
 | **Terminal 3** (Host) | Trình tấn công `kali_wids_attacks.sh` | Thực hiện các tùy chọn tấn công trực quan (bắn deauth, beacon flood). |
 | **Trình duyệt Web** | Giao diện Kibana SIEM | Truy cập `https://localhost:5601`, trình diễn Dashboard tương quan an ninh vô tuyến trực quan, biểu đồ timeline nhảy vọt ngay khi bấm tấn công (độ trễ < 3 giây). |
 
 ### 💡 Các lập luận "đắt giá" bảo vệ đề tài:
+
 1. **Khắc phục triệt để hạn chế tài nguyên**: Sử dụng driver `mac80211_hwsim` với 32 radios giúp cách ly hoàn toàn môi trường mạng thật của Host (`wlan0`) với môi trường Mininet-WiFi (`wlan1-24`) và các card an ninh (`wlan30-31`), đảm bảo lab chạy cực kỳ ổn định không bị mất mạng hay treo đơ máy.
-2. **Kỹ thuật sniffer lai thực tế (Hybrid Emulation)**: Hệ thống sử dụng công cụ WIDS tiêu chuẩn **Kismet** thực thụ để bắt và phân tích frame thô 802.11 ảo, chứng minh khả năng làm chủ công nghệ WIDS/WIPS cấp độ doanh nghiệp.
+2. **Kỹ thuật sniffer lai thực tế (Hybrid Emulation)**: Hệ thống sử dụng công cụ WIDS tiêu chuẩn **Kismet** thực thụ để bắt và phân tích frame thô 802.11 ảo, chứng minh khả năng làm chủ công nghệ WIDS/WIPS cấp độ doanh nghiệp. Đây là điểm khác biệt so với các đồ án mô phỏng log thuần túy.
 3. **Quy trình WIPS khép kín và tự động**: WIPS daemon không chỉ cảnh báo mà còn chủ động phản ứng bằng cơ chế phản kích vô tuyến (Deauth Containment qua `wlan30`) và ngăn chặn mạng (Blacklist), giải quyết trọn vẹn bài toán phản ứng phòng vệ vô tuyến.
+4. **Giải quyết vấn đề "False Positive" (Cảnh báo giả) trong môi trường mật độ cao**:
+   * *Lập luận*: Trong môi trường mật độ cao (văn phòng, trường học), có rất nhiều sóng Wi-Fi của nhà dân hoặc văn phòng lân cận lọt vào, dễ gây ra cảnh báo giả liên tục.
+   * *Giải pháp*: WIDS của chúng ta đã thiết lập cơ chế **AP Baseline Whitelist** trong Kismet (cấu hình `apspoof` rule trong `kismet_site.conf`), so khớp cả SSID, BSSID và chuẩn mã hóa. Hệ thống chỉ cảnh báo Rogue AP/Evil Twin khi có thiết bị phát sóng trùng SSID nội bộ nhưng sai địa chỉ BSSID, triệt tiêu phần lớn cảnh báo giả từ các AP xung quanh.
+
+---
+
+## 6. Hướng Dẫn Khắc Phục Sự Cố (Troubleshooting)
+
+### 6.1. Lỗi Logstash báo không có quyền đọc log (`Permission Denied`)
+
+* **Triệu chứng**: Logstash container chạy bình thường nhưng không đẩy được dữ liệu lên Elasticsearch, log của Logstash báo lỗi truy cập file JSON.
+* **Cách khắc phục**: Cấp quyền đọc/ghi rộng hơn cho các file log trên Host để container truy cập được:
+  ```bash
+  sudo chmod 666 /var/log/kismet-wips/wips-alerts.json
+  sudo chmod 666 /var/log/kismet-wips/active-response.log
+  ```
+
+### 6.2. Lỗi Elasticsearch sập liên tục do RAM ảo (`max virtual memory areas`)
+
+* **Triệu chứng**: Khi chạy `docker-compose up`, Elasticsearch Container tự động dừng đột ngột.
+* **Cách khắc phục**: Hệ điều hành mặc định giới hạn bộ nhớ ảo quá thấp cho Elasticsearch. Hãy chạy lệnh sau trên host Kali:
+  ```bash
+  sudo sysctl -w vm.max_map_count=262144
+  # Đảm bảo lưu cấu hình sau khi reboot máy:
+  echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.conf
+  ```
+
+### 6.3. Mininet-WiFi bị lỗi xung đột cổng/interface ảo cũ
+
+* **Triệu chứng**: Chạy script `dense_wifi_topology.py` báo lỗi interface bận (`busy`) hoặc không tạo được nút mạng.
+* **Cách khắc phục**: Hãy dọn dẹp các tài nguyên Mininet cũ trước khi chạy mới:
+  ```bash
+  sudo mn -c
+  # Nếu vẫn lỗi, hãy reload lại driver giả lập sóng:
+  sudo modprobe -r mac80211_hwsim
+  sudo modprobe mac80211_hwsim radios=32
+  ```
+
+### 6.4. Kismet WIDS không phát hiện AP ảo
+
+* **Triệu chứng**: Kismet khởi chạy thành công nhưng không quét thấy bất kỳ AP nào trên giao diện Web UI.
+* **Cách khắc phục**: Kiểm tra card monitor đúng mode và đúng kênh:
+  ```bash
+  # Xác nhận wlan31 đang ở Monitor Mode
+  iw dev wlan31 info
+  # Nếu type không phải "monitor", cấu hình lại:
+  sudo ip link set wlan31 down
+  sudo iw dev wlan31 set type monitor
+  sudo ip link set wlan31 up
+  sudo iw dev wlan31 set channel 11
+  ```
+
+### 6.5. WIPS Daemon không nhận được alert từ Kismet API
+
+* **Triệu chứng**: `kismet_wips_daemon.py` chạy nhưng log trống, không có sự kiện nào được ghi.
+* **Cách khắc phục**: Kiểm tra kết nối API và xác thực:
+  ```bash
+  # Test thủ công API Kismet
+  curl -s -k http://localhost:2501/system/status.json | python3 -m json.tool
+  # Kiểm tra thông tin đăng nhập trong .env
+  cat .env | grep KISMET
+  ```

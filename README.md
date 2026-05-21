@@ -75,35 +75,99 @@ flowchart TB
 
 ## 📂 Sơ Đồ Cấu Trúc Các Tệp Dự Án
 
-- 📄 **`run_project.sh`**: Script cốt lõi điều khiển toàn bộ dự án (Khởi động SIEM, dọn dẹp card mạng, bật topo Mininet-WiFi, chạy bridge API ngầm).
-- 📂 **`src/`**: Thư mục chứa mã nguồn chính của ứng dụng:
-  - 📄 `dense_wifi_topology.py`: Script Python thiết lập mạng Wi-Fi ảo mật độ cao bằng Mininet-WiFi, tự động vá lỗi giữ driver và cấu hình card monitor `wlan31`.
-  - 📄 `kismet_wips_daemon.py`: Động cơ ngăn chặn chủ động (WIPS) & API Bridge kết hợp, xử lý phát hiện, ghi logs chuẩn hóa và kích hoạt deauth cách ly qua `wlan30`.
-  - 📄 `kali_wids_attacks.sh`: Shell script giả lập tấn công thực nghiệm sử dụng `aireplay-ng` và `mdk4` trên card `wlan30`.
-- 📂 **`SIEM/`**: Chứa hạ tầng bảo mật SIEM chạy trên nền Docker:
-  - 📄 `docker-compose.yml`: Khai báo 3 dịch vụ Elasticsearch, Logstash, Kibana (phiên bản v9.0.1 bảo mật cao).
-  - 📂 `logstash/pipeline/logstash.conf`: Cấu hình tiếp nhận log file và đẩy index Elasticsearch.
-  - 📄 `kibana.yml` & `generate_key.sh`: Cấu hình bảo mật mã hóa cho Kibana.
-- 📄 **`DATA_FLOW.md`**: Tài liệu đặc tả kỹ thuật chi tiết về luồng dữ liệu, schema JSON sự kiện an ninh.
-- 📄 **`kismet_siem_elk_plan.md`**: Bản kế hoạch triển khai, cấu hình chi tiết và các kịch bản demo bảo vệ đề tài.
-- 📄 **`kismet_siem_elk_checklist.md`**: Sơ đồ cây theo dõi tiến độ hoàn thành các hạng mục công việc.
-- 📄 **`kismet_wids_integration_guide.md`**: Tài liệu hướng dẫn cấu hình chi tiết cho Kismet WIDS.
+```
+📦 wireless-mobile-network-security-project/
+├── run_project.sh              ← 🚀 Entry point chính
+├── setup_miniconda_env.sh      ← 🔧 Tự động tải & cài Miniconda + môi trường
+├── README.md
+│
+├── src/                        ← 💻 Mã nguồn chính
+│   ├── dense_wifi_topology.py  ← Topo mạng Wi-Fi ảo Mininet-WiFi
+│   ├── kismet_wips_daemon.py   ← WIPS Daemon & API Bridge
+│   └── kali_wids_attacks.sh    ← Script tấn công thực nghiệm
+│
+├── docs/                       ← 📚 Tài liệu kỹ thuật
+│   ├── DATA_FLOW.md            ← Sơ đồ luồng dữ liệu & JSON Schema
+│   ├── kismet_siem_elk_plan.md ← Kế hoạch triển khai & kịch bản demo
+│   ├── kismet_siem_elk_checklist.md ← Checklist tiến độ
+│   └── khung_bao_cao_de_tai.md ← Khung báo cáo đề tài
+│
+├── tools/                      ← 🔧 Scripts tiện ích
+│   ├── notion_sync.py          ← Đồng bộ checklist lên Notion
+│   └── fix_kismet_config.sh    ← Sửa cấu hình Kismet
+│
+├── SIEM/                       ← 📊 Hạ tầng SIEM ELK Stack (Docker)
+│   ├── docker-compose.yml      ← 3 dịch vụ ES/Logstash/Kibana
+│   ├── logstash/pipeline/      ← Pipeline Logstash
+│   ├── kibana.yml              ← Cấu hình Kibana
+│   └── generate_key.sh         ← Sinh khóa mã hóa
+│
+├── mininet-wifi/               ← Git submodule Mininet-WiFi
+└── GPT_Chatask/                ← Tài liệu tham khảo
+```
 
 ---
 
-## ⚡ Hướng Dẫn Sử Dụng Nhanh (Quick Start)
+## 🛠️ Hướng Dẫn Cài Đặt Hệ Thống Từ Máy Kali Linux Mới (Fresh Kali Setup)
 
-Mọi hoạt động quản trị của dự án đã được tự động hóa tối đa thông qua file runner duy nhất `run_project.sh`.
+Nếu bạn đang sử dụng một máy ảo hoặc máy vật lý **Kali Linux mới tinh (hoặc vừa cài đặt lại)**, hãy thực hiện tuần tự các bước dưới đây để cấu hình đầy đủ môi trường từ A - Z.
 
-### 1. Phân quyền thực thi ban đầu
-
+### Bước 1: Cập nhật hệ thống & Cài đặt các gói phụ thuộc cơ bản
+Chạy lệnh sau để cập nhật danh sách repositories và cài đặt các công cụ cốt lõi (Git, Docker, Docker Compose, Kismet, Pip):
 ```bash
-chmod +x run_project.sh src/*.sh src/*.py SIEM/*.sh
+sudo apt update && sudo apt upgrade -y
+sudo apt install git docker.io docker-compose kismet python3-pip curl -y
 ```
 
-### 2. Khởi chạy bằng Giao diện Menu Tương Tác
+### Bước 2: Kích hoạt & Phân quyền dịch vụ Docker
+Bật Docker chạy cùng hệ thống và cho phép người dùng hiện tại chạy docker không cần quyền `sudo`:
+```bash
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+# Áp dụng quyền mới ngay lập tức mà không cần khởi động lại máy
+newgrp docker
+```
 
-Hãy mở terminal trên Kali Linux Host và chạy:
+### Bước 3: Tải mã nguồn dự án & Phân quyền thực thi
+Clone dự án từ GitHub và phân quyền thực thi cho tất cả các script tự động hóa:
+```bash
+# Clone dự án (nếu bạn chưa tải về)
+git clone https://github.com/ph4n10m1808/wireless-mobile-network-security-project.git
+cd wireless-mobile-network-security-project
+
+# Phân quyền thực thi toàn bộ thư mục
+chmod +x run_project.sh setup_miniconda_env.sh src/*.sh src/*.py tools/*.py tools/*.sh SIEM/*.sh
+```
+
+### Bước 4: Cài đặt tự động môi trường (Miniconda, Python 3.12, Mininet-WiFi)
+Chạy script cài đặt hợp nhất. Script này sẽ tự động:
+1. Tải bản phân phối Miniconda3 (Python 3.12) chính thức.
+2. Cài đặt vào `/opt/miniconda3` và tự động cấp quyền `777` để tài khoản hiện tại quản lý dễ dàng.
+3. Tạo môi trường ảo conda tên `network` và cài đặt các thư viện Python chuyên dụng.
+4. Cài đặt toàn bộ hệ thống giả lập Wi-Fi mật độ cao **Mininet-WiFi**.
+```bash
+sudo ./setup_miniconda_env.sh
+```
+
+### Bước 5: Cấu hình tài nguyên hệ thống cho SIEM ELK Stack
+Hệ điều hành Kali Linux mới mặc định giới hạn bộ nhớ ảo rất thấp, dễ khiến Elasticsearch bị treo sập khi khởi động. Chạy lệnh sau để cấu hình tối ưu hóa tài nguyên:
+```bash
+# Tăng giới hạn bộ nhớ ảo ngay lập tức
+sudo sysctl -w vm.max_map_count=262144
+
+# Đảm bảo lưu cấu hình này kể cả khi khởi động lại máy
+echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.conf
+```
+
+---
+
+## ⚡ Khởi Chạy Và Thực Nghiệm (Quick Start)
+
+Mọi hoạt động quản trị của dự án đã được tự động hóa tối đa thông qua file runner duy nhất `run_project.sh` ở root.
+
+### 1. Khởi chạy bằng Giao diện Menu Tương Tác
+
+Hãy mở terminal tại thư mục gốc dự án trên Kali Linux và chạy:
 
 ```bash
 sudo ./run_project.sh
@@ -111,10 +175,10 @@ sudo ./run_project.sh
 
 Hệ thống sẽ hiển thị bảng điều khiển chuyên nghiệp:
 
-- Chọn `[1]` để khởi động mạng giả lập Mininet-WiFi + WIDS Bridge (không kèm SIEM).
-- Chọn `[2]` để khởi động toàn bộ hạ tầng: **Mạng Mininet-WiFi + Kismet WIDS + KÈM SIEM ELK Stack**.
-- Chọn `[3]` hoặc `[4]` để tắt và dọn dẹp sạch sẽ tài nguyên, card mạng ảo, và container rác.
-- Chọn `[5]` hoặc `[6]` để quản lý độc lập cụm SIEM Docker.
+- **Chọn `[1]`**: Khởi động mạng giả lập Mininet-WiFi + WIDS Bridge (chỉ test quét sóng, không kèm SIEM ELK).
+- **Chọn `[2]`**: Khởi động toàn bộ hạ tầng: **Mạng Mininet-WiFi + Kismet WIDS + KÈM SIEM ELK Stack** (Khuyên dùng để demo).
+- **Chọn `[3]` hoặc `[4]`**: Tắt, dọn dẹp sạch sẽ card mạng ảo, container rác và tài nguyên hệ thống.
+- **Chọn `[5]` hoặc `[6]`**: Quản lý độc lập cụm SIEM Docker.
 
 ### 3. Thực Hiện Tấn Công Thử Nghiệm
 
@@ -172,6 +236,7 @@ apspoof=CompanyGuest5GRule:ssid="Company-Guest-5G",validmacs="02:00:00:00:A4:50"
 
 ## 📚 Tài Liệu Tích Hợp Chi Tiết
 
-- 📖 **[DATA_FLOW.md](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/DATA_FLOW.md)**: Sơ đồ chuỗi sự kiện sequence, Gantt timeline, và JSON Event Schema chi tiết.
-- 📝 **[kismet_siem_elk_checklist.md](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/kismet_siem_elk_checklist.md)**: Sơ đồ cây quản lý tiến độ hoàn thiện đồ án bảo vệ trước hội đồng.
-- 📕 **[kismet_siem_elk_plan.md](file:///home/ph4n10m/Code/wireless-mobile-network-security-project/kismet_siem_elk_plan.md)**: Hướng dẫn cấu hình chi tiết Kismet API và kịch bản demo trực tiếp.
+- 📖 **[DATA_FLOW.md](docs/DATA_FLOW.md)**: Sơ đồ chuỗi sự kiện sequence, Gantt timeline, và JSON Event Schema chi tiết.
+- 📝 **[kismet_siem_elk_checklist.md](docs/kismet_siem_elk_checklist.md)**: Sơ đồ cây quản lý tiến độ hoàn thiện đồ án bảo vệ trước hội đồng.
+- 📕 **[kismet_siem_elk_plan.md](docs/kismet_siem_elk_plan.md)**: Kế hoạch triển khai, cấu hình chi tiết và kịch bản demo trực tiếp.
+- 📗 **[khung_bao_cao_de_tai.md](docs/khung_bao_cao_de_tai.md)**: Khung nội dung báo cáo đề tài.
