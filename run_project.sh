@@ -68,7 +68,7 @@ cleanup_processes() {
   pkill -f kismet_wips_daemon.py >/dev/null 2>&1
 
   # Biện pháp chống timing-race: Reset wlan30/wlan31 về managed mode ngay sau khi kill kismet.
-  # Topology mới (21 nodes) chiếm wlan1–wlan21; host giữ wlan22–wlan32.
+  # Topology mới (24 nodes) chiếm wlan1–wlan24; host giữ wlan25–wlan32.
   # wlan30 = WIPS deauth, wlan31 = Kismet monitor.
   for iface in wlan30 wlan31; do
     if ip link show "$iface" >/dev/null 2>&1; then

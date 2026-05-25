@@ -4,6 +4,19 @@
 > **Stack:** Mininet-WiFi · Kismet · Python Scripts · Logstash · Elasticsearch · Kibana  
 > **Mục tiêu:** Phát hiện, thu thập và trực quan hóa các mối đe dọa Wi-Fi (Rogue AP, Evil Twin, Deauth Flood, v.v.)
 
+### 📑 Mục lục
+
+| # | Nội dung |
+|---|---|
+| 1 | [Tổng quan kiến trúc hệ thống](#1-tổng-quan-kiến-trúc-hệ-thống) |
+| 2 | [Chi tiết luồng dữ liệu từ nguồn đến đích](#2-chi-tiết-luồng-dữ-liệu-từ-nguồn-đến-đích) |
+| 3 | [Luồng xử lý sự kiện tấn công](#3-luồng-xử-lý-sự-kiện-tấn-công-attack-event-flow) |
+| 4 | [Kiến trúc Docker và kết nối dịch vụ](#4-kiến-trúc-docker-và-kết-nối-dịch-vụ) |
+| 5 | [Schema sự kiện JSON chuẩn](#5-schema-sự-kiện-json-chuẩn-event-schema) |
+| 6 | [Timeline khởi động hệ thống](#6-timeline-khởi-động-hệ-thống) |
+| 7 | [Bảng tóm tắt thành phần](#7-bảng-tóm-tắt-thành-phần) |
+| 8 | [Luồng dữ liệu bảo mật](#8-luồng-dữ-liệu-bảo-mật-security-data-path) |
+
 ---
 
 ## 1. Tổng quan kiến trúc hệ thống
@@ -70,16 +83,14 @@ sequenceDiagram
 
     Note over MN,HW: Khởi động hạ tầng ảo hóa
     MN->>HW: modprobe mac80211_hwsim radios=32
-    MN->>MN: Tạo 8 AP hợp lệ, 4 Rogue AP (ap9-ap12)
-    MN->>MN: Tạo sta1–sta12
+    MN->>MN: Tạo 8 AP hợp lệ + 4 Rogue AP (ap9-ap12) = 24 nodes
+    MN->>MN: Tạo sta1–sta12 (12 Wireless Clients)
     MN->>HW: iw dev wlan31 set type monitor
     MN->>HW: iw dev wlan31 set channel 11
 
     Note over HW,KS: Bắt gói tin không dây
     HW->>KS: 802.11 raw frames (Beacon, Probe, Deauth, ...)
     KS->>KS: Phân tích frame → phát hiện<br/>Evil Twin / Rogue AP / Deauth Flood
-
-
 
     Note over KS,WD: Kismet WIPS Daemon (Active Response)
     WD->>KS: GET /session/check_session.json (auth)
@@ -212,6 +223,7 @@ classDiagram
         +String encryption          %% "WPA2-Enterprise" | "open" | ...
         +Boolean authorized         %% false = cảnh báo
         +String severity            %% Xem Severity enum
+        +String alert_origin        %% "external" | "wips_containment"
     }
 
     class EventType {
@@ -293,7 +305,7 @@ gantt
 | Thành phần | Loại | Địa chỉ / Đường dẫn | Vai trò |
 |---|---|---|---|
 | `dense_wifi_topology.py` | Python Script | `src/` | Tạo mạng Wi-Fi ảo với 8 AP hợp lệ + 4 Rogue AP |
-| `mac80211_hwsim` | Kernel Module | `wlan0`–`wlan32` | Cung cấp 32 card Wi-Fi ảo |
+| `mac80211_hwsim` | Kernel Module | `wlan1`–`wlan32` | Cung cấp 32 card Wi-Fi ảo (`wlan0` là card thật) |
 | `wlan31` | Monitor Interface | CH11 | Bắt mọi frame 802.11 cho Kismet |
 | **Kismet WIDS** | Daemon | `localhost:2501` | Phân tích frame → sinh alert APSPOOF/Deauth/v.v. |
 | `kismet_wips_daemon.py` | Active WIPS Daemon & Bridge | `src/` | Daemon kết nối API Kismet, chuẩn hóa log và cô lập Rogue AP (IP block & Deauth) |
@@ -344,4 +356,4 @@ flowchart LR
 ---
 
 *Tài liệu được tạo tự động theo kiến trúc thực tế của dự án.*  
-*Cập nhật lần cuối: 2026-05-18*
+*Cập nhật lần cuối: 2026-05-25*

@@ -21,6 +21,17 @@ Hệ thống được thiết kế chạy **hoàn toàn trong môi trường Kal
 5. **Trực Quan Hóa Tương Tác**: Dashboard bảo mật tập trung trên **Kibana** giúp quản trị viên nắm bắt nhanh chóng tình hình an ninh vô tuyến và đưa ra phản ứng kịp thời.
 6. **Bảng Điều Khiển Hợp Nhất (`run_project.sh`)**: Script quản trị mạnh mẽ với giao diện Menu tương tác chuyên nghiệp, hỗ trợ tự động thiết lập/dọn dẹp driver, khởi chạy/tắt Mininet-WiFi topo và Docker Compose ELK Stack chỉ bằng một lệnh duy nhất.
 
+### 🛠️ Công Nghệ Sử Dụng
+
+| Thành phần | Công nghệ | Phiên bản |
+|---|---|---|
+| Giả lập sóng Wi-Fi | `mac80211_hwsim` + Mininet-WiFi | 32 radios |
+| Phát hiện xâm nhập (WIDS) | Kismet | Latest |
+| Cầu nối & Ngăn chặn (WIPS) | `kismet_wips_daemon.py` | Python 3.12 |
+| Tấn công thực nghiệm | `aireplay-ng`, `mdk4` | aircrack-ng suite |
+| SIEM | ELK Stack (Docker) | 9.0.1 |
+| Hệ điều hành | Kali Linux | 2024+ |
+
 ---
 
 ## 📐 Kiến Trúc Luồng Dữ Liệu (Data Flow)
@@ -71,39 +82,42 @@ flowchart TB
     LOG_WIPS -->|"Docker bind mount :ro"| LOGSTASH
 ```
 
----
-
 ## 📂 Sơ Đồ Cấu Trúc Các Tệp Dự Án
 
 ```
 📦 wireless-mobile-network-security-project/
-├── run_project.sh              ← 🚀 Entry point chính
-├── setup_miniconda_env.sh      ← 🔧 Tự động tải & cài Miniconda + môi trường
-├── README.md
+├── run_project.sh              ← 🚀 Entry point chính (Bảng điều khiển)
+├── setup_miniconda_env.sh      ← 🔧 Tự động cài đặt Miniconda & môi trường
+├── .env                        ← 🔑 Cấu hình bảo mật Notion & Kismet API (gitignored)
+├── README.md                   ← 📖 Hướng dẫn sử dụng & Tổng quan hệ thống
 │
-├── src/                        ← 💻 Mã nguồn chính
-│   ├── dense_wifi_topology.py  ← Topo mạng Wi-Fi ảo Mininet-WiFi
-│   ├── kismet_wips_daemon.py   ← WIPS Daemon & API Bridge
-│   └── kali_wids_attacks.sh    ← Script tấn công thực nghiệm
+├── src/                        ← 💻 Mã nguồn ứng dụng
+│   ├── dense_wifi_topology.py  ← Giả lập topo mạng Wi-Fi ảo Mininet-WiFi
+│   ├── kismet_wips_daemon.py   ← WIPS Daemon & Cầu nối API
+│   └── kali_wids_attacks.sh    ← Script phát động tấn công thực nghiệm
 │
-├── docs/                       ← 📚 Tài liệu kỹ thuật
+├── docs/                       ← 📚 Tài liệu kỹ thuật chuyên sâu
 │   ├── DATA_FLOW.md            ← Sơ đồ luồng dữ liệu & JSON Schema
-│   ├── kismet_siem_elk_plan.md ← Kế hoạch triển khai & kịch bản demo
-│   ├── kismet_siem_elk_checklist.md ← Checklist tiến độ
-│   └── khung_bao_cao_de_tai.md ← Khung báo cáo đề tài
+│   ├── kismet_siem_elk_plan.md ← Kế hoạch triển khai & Kịch bản demo
+│   ├── kismet_siem_elk_checklist.md ← Checklist theo dõi tiến độ chi tiết
+│   └── khung_bao_cao_de_tai.md ← Khung đề cương báo cáo đồ án
 │
-├── tools/                      ← 🔧 Scripts tiện ích
-│   ├── notion_sync.py          ← Đồng bộ checklist lên Notion
-│   └── fix_kismet_config.sh    ← Sửa cấu hình Kismet
+├── tools/                      ← 🔧 Công cụ hỗ trợ
+│   ├── notion_sync.py          ← Đồng bộ checklist lên trang Notion
+│   ├── fix_kismet_config.sh    ← Tự động hóa cấu hình Kismet WIDS
+│   └── sync_git_upstream.sh    ← Script đồng bộ hóa Git Upstream
 │
-├── SIEM/                       ← 📊 Hạ tầng SIEM ELK Stack (Docker)
-│   ├── docker-compose.yml      ← 3 dịch vụ ES/Logstash/Kibana
-│   ├── logstash/pipeline/      ← Pipeline Logstash
-│   ├── kibana.yml              ← Cấu hình Kibana
-│   └── generate_key.sh         ← Sinh khóa mã hóa
+├── SIEM/                       ← 📊 Hạ tầng SIEM ELK Stack (Docker Compose)
+│   ├── docker-compose.yml      ← Khởi tạo Elasticsearch, Logstash, Kibana
+│   ├── logstash/
+│   │   └── pipeline/           ← Định nghĩa Pipeline Logstash nhận dữ liệu
+│   ├── kibana.yml              ← Tùy chỉnh tham số giao diện Kibana
+│   └── generate_key.sh         ← Sinh khóa bảo mật phiên làm việc Kibana
 │
-├── mininet-wifi/               ← Git submodule Mininet-WiFi
-└── GPT_Chatask/                ← Tài liệu tham khảo
+├── kali/                       ← 🐧 Máy ảo Kali Linux phục vụ thực nghiệm
+│   └── Vagrantfile             ← Định nghĩa cấu hình hạ tầng Vagrant
+│
+└── mininet-wifi/               ← 📡 Git Submodule dự án Mininet-WiFi gốc
 ```
 
 ---
@@ -173,12 +187,49 @@ Hãy mở terminal tại thư mục gốc dự án trên Kali Linux và chạy:
 sudo ./run_project.sh
 ```
 
-Hệ thống sẽ hiển thị bảng điều khiển chuyên nghiệp:
+Hệ thống sẽ hiển thị bảng điều khiển chuyên nghiệp với 10 tùy chọn:
 
 - **Chọn `[1]`**: Khởi động mạng giả lập Mininet-WiFi + WIDS Bridge (chỉ test quét sóng, không kèm SIEM ELK).
 - **Chọn `[2]`**: Khởi động toàn bộ hạ tầng: **Mạng Mininet-WiFi + Kismet WIDS + KÈM SIEM ELK Stack** (Khuyên dùng để demo).
-- **Chọn `[3]` hoặc `[4]`**: Tắt, dọn dẹp sạch sẽ card mạng ảo, container rác và tài nguyên hệ thống.
-- **Chọn `[5]` hoặc `[6]`**: Quản lý độc lập cụm SIEM Docker.
+- **Chọn `[3]`**: Tắt & dọn dẹp WIDS/WIPS và Mininet-WiFi (giữ SIEM nếu đang chạy).
+- **Chọn `[4]`**: Tắt & dọn dẹp toàn bộ hệ thống (cả WIDS/WIPS lẫn SIEM).
+- **Chọn `[5]`**: Chỉ khởi động cụm SIEM Docker (ELK Stack).
+- **Chọn `[6]`**: Chỉ tắt cụm SIEM Docker.
+- **Chọn `[7]`**: Tắt SIEM & xóa dữ liệu (reset volumes, giữ Docker images).
+- **Chọn `[8]`**: Xóa hoàn toàn SIEM (volumes + images + logs — clean slate).
+- **Chọn `[9]`**: Cấu hình & tối ưu hóa Kismet WIDS (AP Whitelist).
+- **Chọn `[0]`**: Thoát.
+
+Ngoài giao diện menu tương tác, `run_project.sh` cũng hỗ trợ **CLI mode** cho tự động hóa:
+
+```bash
+# Khởi động đầy đủ (mạng giả lập + SIEM)
+sudo ./run_project.sh start --with-siem
+
+# Chỉ khởi động mạng giả lập (không SIEM)
+sudo ./run_project.sh start
+
+# Tắt toàn bộ (mạng + SIEM)
+sudo ./run_project.sh stop --with-siem
+
+# Xem hướng dẫn đầy đủ
+sudo ./run_project.sh --help
+```
+
+### 2. Kiểm Tra Trạng Thái Hệ Thống
+
+Sau khi khởi chạy, bạn có thể kiểm tra nhanh tình trạng các thành phần:
+
+```bash
+# Kiểm tra Kismet WIDS đang chạy
+curl -s http://localhost:2501/system/status.json | python3 -m json.tool
+
+# Kiểm tra cụm SIEM ELK Stack
+cd SIEM && docker-compose ps
+
+# Theo dõi log WIPS real-time
+tail -f /var/log/kismet-wips/wips-alerts.json
+```
 
 ### 3. Thực Hiện Tấn Công Thử Nghiệm
 

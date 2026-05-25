@@ -1,4 +1,5 @@
 *.pdf
+GPT_Chatask/
 
 # Vagrant
 .vagrant/

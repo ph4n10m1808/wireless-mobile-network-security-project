@@ -100,15 +100,18 @@ filter {
 }
 
 output {
+  # Chỉ xuất các log WIDS sang Elasticsearch
   if "wids" in [tags] {
     elasticsearch {
       hosts => ["https://ecp-elasticsearch:9200"]
       user => "elastic"
       password => "${ELASTIC_PASSWORD}"
-      ssl_enabled => true
-      ssl_certificate_authorities => ["/usr/share/logstash/config/certs/ca/ca.crt"]
+      ssl_certificate_authorities => "/usr/share/logstash/config/certs/ca/ca.crt"
       index => "%{[@metadata][index_prefix]}-%{+YYYY.MM.dd}"
     }
+    # BUG-13 FIX: stdout rubydebug đã bị tắt để tránh log spam khi có nhiều cảnh báo.
+    # Bỏ comment dòng dưới nếu cần debug pipeline:
+    # stdout { codec => rubydebug }
   }
 }
 ```
@@ -122,16 +125,16 @@ output {
 # =========================================================================
 
 # 1. Bảo vệ SSID "Company-WiFi" (2.4 GHz - AP1, AP3, AP5)
-apspoof=CompanyWiFiRule:ssid="Company-WiFi",validmacs="02:00:00:00:A1:00,02:00:00:00:A2:00,02:00:00:00:A3:00"
+apspoof=CompanyWiFiRule:ssid="(?:^Company-WiFi$)",validmacs="02:00:00:00:A1:00,02:00:00:00:A2:00,02:00:00:00:A3:00"
 
 # 2. Bảo vệ SSID "Company-WiFi-5G" (5 GHz - AP2, AP4, AP6)
-apspoof=CompanyWiFi5GRule:ssid="Company-WiFi-5G",validmacs="02:00:00:00:A1:50,02:00:00:00:A2:50,02:00:00:00:A3:50"
+apspoof=CompanyWiFi5GRule:ssid="(?:^Company-WiFi-5G$)",validmacs="02:00:00:00:A1:50,02:00:00:00:A2:50,02:00:00:00:A3:50"
 
 # 3. Bảo vệ SSID "Company-Guest" (2.4 GHz - AP7)
-apspoof=CompanyGuestRule:ssid="Company-Guest",validmacs="02:00:00:00:A4:00"
+apspoof=CompanyGuestRule:ssid="(?:^Company-Guest$)",validmacs="02:00:00:00:A4:00"
 
 # 4. Bảo vệ SSID "Company-Guest-5G" (5 GHz - AP8)
-apspoof=CompanyGuest5GRule:ssid="Company-Guest-5G",validmacs="02:00:00:00:A4:50"
+apspoof=CompanyGuest5GRule:ssid="(?:^Company-Guest-5G$)",validmacs="02:00:00:00:A4:50"
 ```
 
 ### 2.4. Thiết lập Quyền truy cập Log cho Container Logstash
@@ -150,7 +153,7 @@ sudo chmod 666 /var/log/kismet-wips/wips-alerts.json
 sudo chmod 666 /var/log/kismet-wips/active-response.log
 ```
 
-# ─── Chuẩn bị trước khi chạy (Dành cho máy Kali Linux mới) ───────────────────
+### 2.5. Chuẩn bị trước khi chạy (Dành cho máy Kali Linux mới)
 Nếu đây là một máy ảo/máy vật lý Kali Linux mới được cài đặt, vui lòng chạy các lệnh sau để đảm bảo đầy đủ môi trường:
 
 ```bash
@@ -178,12 +181,12 @@ sudo ./run_project.sh
 ```
 * **Chọn Menu `[2]`**: Hệ thống sẽ tự động thực hiện:
   1. Khởi động cụm SIEM Docker (Elasticsearch, Logstash, Kibana) ngầm.
-  2. Nạp driver `mac80211_hwsim` cấu hình **32 radios ảo** (wlan0 đến wlan32).
+  2. Nạp driver `mac80211_hwsim` cấu hình **32 radios ảo** (wlan1 đến wlan32, `wlan0` là card thật).
   3. Cấu hình NetworkManager để bỏ qua toàn bộ card mạng ảo `wlan*`, tránh Kernel Panic.
   4. Khởi chạy topo mạng Mininet-WiFi (`dense_wifi_topology.py`).
   5. Đưa card `wlan31` sang chế độ **Monitor Mode** khóa kênh 11.
-  6. Khởi động ngầm **Kismet WIDS** lắng nghe trên card `wlan31`.
-  7. Khởi chạy ngầm **Active WIPS Daemon** (`kismet_wips_daemon.py`) để bắt đầu poll API.
+  6. Khởi động ngầm **Kismet WIDS** quét đa kênh (channel hopping 8 kênh: `1,6,11,36,40,44,149,153` @ 3ch/s) trên card `wlan31`.
+  7. Khởi chạy ngầm **Active WIPS Daemon** (`kismet_wips_daemon.py`) để bắt đầu poll API và tự động cô lập mối đe dọa.
 
 ### Bước 2: Thực Hiện Kịch Bản Tấn Công Để Kích Hoạt WIDS
 Mở một Terminal mới trên Host Kali và thực thi script tấn công:
@@ -193,7 +196,7 @@ sudo ./src/kali_wids_attacks.sh
 
 #### 🛡️ Kịch bản 1: Tấn công Deauthentication Flood (Phát hiện và Cô lập)
 * Trên menu của `kali_wids_attacks.sh`, chọn **`1`** (Deauth Attack) hoặc **`4`** (Amok Deauth).
-* Script sẽ sử dụng `aireplay-ng` qua card chuyên dụng `wlan30` gửi hàng loạt deauth frame.
+* Script sẽ sử dụng `aireplay-ng` qua card chuyên dụng `wlan29` gửi hàng loạt deauth frame.
 * **Quy trình xử lý tự động**:
   1. Kismet phát hiện mật độ Deauth bất thường $\rightarrow$ Sinh cảnh báo qua REST API.
   2. `kismet_wips_daemon.py` poll được cảnh báo $\rightarrow$ Tạo sự kiện JSON lưu vào `wips-alerts.json`.

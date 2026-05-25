@@ -25,7 +25,7 @@ from functools import lru_cache
 # CẤU HÌNH HỆ THỐNG WIPS
 # ==========================================
 # Giao diện mạng giám sát/tấn công ảo
-# wlan30: Host giữ được sau khi Mininet chiếm wlan1–wlan21 (21 nodes)
+# wlan30: Host giữ được sau khi Mininet chiếm wlan1–wlan24 (24 nodes)
 # wlan31: Kismet monitor (sử dụng bởi run_project.sh)
 WIPS_INTERFACE = "wlan30"  # Card mạng ảo dùng để gửi gói deauth cô lập
 MONITOR_CHANNEL = 11

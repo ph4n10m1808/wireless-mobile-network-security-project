@@ -1,4 +1,7 @@
-# Checklist Tiến độ Hoàn thành Dự án Kismet WIDS & ELK SIEM (Dạng Tree Chi tiết)
+# ✅ Checklist Tiến độ Hoàn thành Dự án Kismet WIDS & ELK SIEM (Dạng Tree Chi tiết)
+
+> **Trạng thái:** 🟢 Hoàn thành 100% — Tất cả 7 phân hệ đã hoàn tất  
+> **Cập nhật lần cuối:** 2026-05-25
 
 Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi tiết từng đầu mục công việc từ chuẩn bị, lập cấu hình, cài đặt Kismet, chạy script đồng bộ, thực hiện tấn công thực nghiệm cho đến tích hợp SIEM ELK và bảo vệ đồ án. Đây là tài liệu quản lý đi cùng kế hoạch [kismet_siem_elk_plan.md](kismet_siem_elk_plan.md).
 
@@ -80,7 +83,7 @@ Dưới đây là sơ đồ cây checklist phân cấp giúp bạn theo dõi chi
     - [x] 6.1.1. Chạy Mininet-WiFi `dense_wifi_topology.py` kích hoạt các node rogue AP `ap9-ap12` phát sóng trùng tên
     - [x] 6.1.2. Xác nhận Kismet phát hiện cảnh báo Rogue AP / SSID Spoofing trên giao diện Web UI và qua API
   - [x] **6.2. Kiểm thử Kịch bản Deauthentication Flood thật**
-    - [x] 6.2.1. Mở terminal tấn công, sử dụng `aireplay-ng -0 150 -a <BSSID> -c <Client_MAC> wlan30` gửi gói deauth flood thực
+    - [x] 6.2.1. Mở terminal tấn công, sử dụng `aireplay-ng -0 150 -a <BSSID> -c <Client_MAC> wlan29` gửi gói deauth flood thực
     - [x] 6.2.2. Xác nhận Kismet phát hiện, kích hoạt cảnh báo `DEAUTH_FLOOD` mức `Critical`
   - [x] **6.3. Kiểm thử Tương quan Hệ thống & Phản ứng**
     - [x] 6.3.1. Kiểm tra log WIPS Daemon nhận sự kiện $\rightarrow$ Đẩy lên Logstash $\rightarrow$ Kibana hiển thị cảnh báo

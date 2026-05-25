@@ -163,7 +163,7 @@ def topology():
     # Bước 1: Dọn dẹp + nạp hwsim
     cleanup_before_reload()
     # 32 radios: wlan1–wlan32 (wlan0 là card thật)
-    # Mininet chiếm wlan1–wlan21 (21 nodes); wlan30=WIPS, wlan31=Kismet
+    # Mininet chiếm wlan1–wlan24 (24 nodes); wlan30=WIPS, wlan31=Kismet
     reload_hwsim(radios=32)
     patch_cleanup()
 
